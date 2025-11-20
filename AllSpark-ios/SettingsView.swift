@@ -7,7 +7,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .center) {
-            Text("AllSpark Ping Test")
+            Text("AllSpark Network")
                  .font(.largeTitle)
                  .padding(.top, 20)
 

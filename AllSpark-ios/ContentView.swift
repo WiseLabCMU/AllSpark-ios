@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+
+    @State private var viewModel = ViewModel()
+
     var body: some View {
         TabView {
 //            HomeView()
@@ -10,6 +13,10 @@ struct ContentView: View {
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
+                }
+            CameraView(image: $viewModel.currentFrame)
+                .tabItem {
+                    Label("Camera", systemImage: "camera")
                 }
         }
     }
