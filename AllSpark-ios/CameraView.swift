@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct CameraView: View {
-    
-    @Binding var image: CGImage?
-    
+
+    @Binding var cgImage: CGImage?
+
     var body: some View {
         GeometryReader { geometry in
-            if let image = image {
+            if let image = cgImage {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .scaledToFit()
@@ -16,6 +16,13 @@ struct CameraView: View {
                 ContentUnavailableView("No camera feed", systemImage: "xmark.circle.fill")
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.gray.opacity(0.2))
     }
-    
+
+}
+
+#Preview {
+    @Previewable @State var value = UIImage(named: "exampleImage")?.cgImage
+    CameraView(cgImage: $value)
 }

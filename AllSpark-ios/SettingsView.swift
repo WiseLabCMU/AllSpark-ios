@@ -47,17 +47,17 @@ struct SettingsView: View {
                 Text("Ping Once")
             }
             .padding()
-            
+
             Spacer()
 
             Text(displayText)
                  .font(.title)
                  .padding()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Fill the available space
-        .background(Color.gray.opacity(0.2)) // Optional: Background color for visibility
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.gray.opacity(0.2))
     }
-    
+
 }
 
 #Preview {
