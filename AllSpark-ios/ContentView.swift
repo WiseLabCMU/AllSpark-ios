@@ -14,7 +14,7 @@ struct ContentView: View {
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
-            CameraView(cgImage: $viewModel.currentFrame)
+            CameraView()
                 .tabItem {
                     Label("Camera", systemImage: "camera")
                 }
