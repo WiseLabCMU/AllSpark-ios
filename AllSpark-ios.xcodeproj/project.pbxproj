@@ -51,6 +51,7 @@
 			buildPhases = (
 				C96C7B792EC6873200C3C312 /* Sources */,
 				C96C7B7A2EC6873200C3C312 /* Frameworks */,
+				C9F742BB2EE097F9006113CF /* Pull Release Tag From Github */,
 				C96C7B7B2EC6873200C3C312 /* Resources */,
 			);
 			buildRules = (
@@ -114,6 +115,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C9F742BB2EE097F9006113CF /* Pull Release Tag From Github */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Pull Release Tag From Github";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "GIT_RELEASE_VERSION=$(git describe --tags)\ndefaults write \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH%.*}\" \"CFBundleShortVersionString\" \"${GIT_RELEASE_VERSION#*v}\"\n\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C96C7B792EC6873200C3C312 /* Sources */ = {
