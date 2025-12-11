@@ -33,13 +33,18 @@ class CameraViewController: UIViewController {
     private var imageView: UIImageView!
     private var recordButton: UIButton!
     private var switchCameraButton: UIButton!
+    private var timerLabel: UILabel!
+    private var recordingTimer: Timer?
+    private var recordingDuration: TimeInterval = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
         setupImageView()
         setupRecordButton()
+
         setupSwitchCameraButton()
+        setupTimerLabel()
         setupCamera()
         setupFaceDetection()
     }
@@ -70,11 +75,20 @@ class CameraViewController: UIViewController {
     private func setupRecordButton() {
         recordButton = UIButton(type: .system)
         recordButton.translatesAutoresizingMaskIntoConstraints = false
-        recordButton.setTitle("Record", for: .normal)
-        recordButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 18)
-        recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
-        recordButton.setTitleColor(.white, for: .normal)
-        recordButton.layer.cornerRadius = 25
+        if let image = UIImage(systemName: "circle.circle.fill") {
+            // Using a large circle fill to mimic a record button
+            recordButton.setImage(image, for: .normal)
+            recordButton.tintColor = .red
+            recordButton.backgroundColor = .clear // Remove background if using image
+            // Scale up the image
+            let config = UIImage.SymbolConfiguration(pointSize: 60, weight: .regular, scale: .default)
+            recordButton.setPreferredSymbolConfiguration(config, forImageIn: .normal)
+        } else {
+            recordButton.setTitle("Record", for: .normal)
+            recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
+            recordButton.setTitleColor(.white, for: .normal)
+            recordButton.layer.cornerRadius = 25
+        }
         recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
 
         view.addSubview(recordButton)
@@ -110,6 +124,29 @@ class CameraViewController: UIViewController {
             switchCameraButton.heightAnchor.constraint(equalToConstant: 50)
         ])
     }
+
+    private func setupTimerLabel() {
+        timerLabel = UILabel()
+        timerLabel.translatesAutoresizingMaskIntoConstraints = false
+        timerLabel.text = "00:00"
+        timerLabel.textColor = .white
+        timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .semibold)
+        timerLabel.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        timerLabel.layer.cornerRadius = 8
+        timerLabel.clipsToBounds = true
+        timerLabel.textAlignment = .center
+        timerLabel.isHidden = true // Initially hidden
+
+        view.addSubview(timerLabel)
+
+        NSLayoutConstraint.activate([
+            timerLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            timerLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            timerLabel.widthAnchor.constraint(equalToConstant: 80),
+            timerLabel.heightAnchor.constraint(equalToConstant: 30)
+        ])
+    }
+
 
     @objc private func switchCamera() {
         guard !isRecording else { return } // Disable switching while recording
@@ -169,15 +206,33 @@ class CameraViewController: UIViewController {
         }
     }
 
+
+
+    private func updateTimerDisplay() {
+        let minutes = Int(recordingDuration) / 60
+        let seconds = Int(recordingDuration) % 60
+        timerLabel.text = String(format: "%02d:%02d", minutes, seconds)
+    }
+
     @objc private func toggleRecording() {
         if isRecording {
             stopRecording()
-            recordButton.setTitle("Record", for: .normal)
-            recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
+            if let image = UIImage(systemName: "stop.circle.fill") {
+                 recordButton.setImage(image, for: .normal)
+                 recordButton.tintColor = .white
+            } else {
+                recordButton.setTitle("Record", for: .normal)
+                recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
+            }
         } else {
             startRecording()
-            recordButton.setTitle("Stop", for: .normal)
-            recordButton.backgroundColor = UIColor.gray.withAlphaComponent(0.7)
+            if let image = UIImage(systemName: "record.circle") {
+                 recordButton.setImage(image, for: .normal)
+                 recordButton.tintColor = .red
+            } else {
+                recordButton.setTitle("Stop", for: .normal)
+                recordButton.backgroundColor = UIColor.gray.withAlphaComponent(0.7)
+            }
         }
     }
 
@@ -219,6 +274,18 @@ class CameraViewController: UIViewController {
 
                 isRecording = true
                 sessionAtSourceTime = nil
+
+                // Start timer
+                recordingDuration = 0
+                updateTimerDisplay()
+                timerLabel.isHidden = false
+                DispatchQueue.main.async {
+                    self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                        guard let self = self else { return }
+                        self.recordingDuration += 1
+                        self.updateTimerDisplay()
+                    }
+                }
             } else {
                 print("Failed to add input to asset writer")
             }
@@ -229,7 +296,12 @@ class CameraViewController: UIViewController {
 
     private func stopRecording() {
         guard isRecording else { return }
+
         isRecording = false
+
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        timerLabel.isHidden = true
 
         if assetWriter?.status == .failed {
             print("Asset writer status is failed: \(String(describing: assetWriter?.error))")
