@@ -8,6 +8,7 @@ class CameraViewController: UIViewController {
     // Camera session
     private var captureSession: AVCaptureSession!
     private var videoOutput: AVCaptureVideoDataOutput!
+    private var currentCameraPosition: AVCaptureDevice.Position = .front
 
     // Orientation management
     private var videoRotationAngle: CGFloat = 90
@@ -31,12 +32,14 @@ class CameraViewController: UIViewController {
     // Display layer
     private var imageView: UIImageView!
     private var recordButton: UIButton!
+    private var switchCameraButton: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
         setupImageView()
         setupRecordButton()
+        setupSwitchCameraButton()
         setupCamera()
         setupFaceDetection()
     }
@@ -82,6 +85,88 @@ class CameraViewController: UIViewController {
             recordButton.widthAnchor.constraint(equalToConstant: 80),
             recordButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+    }
+
+    private func setupSwitchCameraButton() {
+        switchCameraButton = UIButton(type: .system)
+        switchCameraButton.translatesAutoresizingMaskIntoConstraints = false
+        // Use a standard system image if available, otherwise text
+        if let image = UIImage(systemName: "arrow.triangle.2.circlepath") {
+            switchCameraButton.setImage(image, for: .normal)
+        } else {
+            switchCameraButton.setTitle("Flip", for: .normal)
+        }
+        switchCameraButton.tintColor = .white
+        switchCameraButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        switchCameraButton.layer.cornerRadius = 25
+        switchCameraButton.addTarget(self, action: #selector(switchCamera), for: .touchUpInside)
+
+        view.addSubview(switchCameraButton)
+
+        NSLayoutConstraint.activate([
+            switchCameraButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            switchCameraButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            switchCameraButton.widthAnchor.constraint(equalToConstant: 50),
+            switchCameraButton.heightAnchor.constraint(equalToConstant: 50)
+        ])
+    }
+
+    @objc private func switchCamera() {
+        guard !isRecording else { return } // Disable switching while recording
+
+        captureSession.beginConfiguration()
+
+        // Remove existing input
+        if let currentInput = captureSession.inputs.first as? AVCaptureDeviceInput {
+            captureSession.removeInput(currentInput)
+        }
+
+        // Toggle position
+        currentCameraPosition = (currentCameraPosition == .front) ? .back : .front
+
+        // Get new device
+        guard let newCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
+            print("Failed to get camera for position \(currentCameraPosition)")
+            captureSession.commitConfiguration()
+            return
+        }
+
+        // Add new input
+        guard let newInput = try? AVCaptureDeviceInput(device: newCamera) else {
+            print("Failed to create input for new camera")
+            captureSession.commitConfiguration()
+            return
+        }
+
+        if captureSession.canAddInput(newInput) {
+            captureSession.addInput(newInput)
+        }
+
+        // Re-configure orientation
+        // Reset coordinator to force re-initialization with new device
+        rotationCoordinator = nil
+
+        // Ensure connection orientation is correct
+        if let connection = videoOutput.connection(with: .video) {
+            if #available(iOS 17.0, *) {
+                 // updateVideoOrientation will handle re-init of coordinator
+            } else {
+                connection.videoOrientation = .portrait
+                // For back camera, we might need to adjust mirroring if we were mirroring front
+                if currentCameraPosition == .front {
+                    connection.isVideoMirrored = true
+                } else {
+                    connection.isVideoMirrored = false
+                }
+            }
+        }
+
+        captureSession.commitConfiguration()
+
+        // Update orientation logic (re-inits coordinator)
+        DispatchQueue.main.async {
+            self.updateVideoOrientation()
+        }
     }
 
     @objc private func toggleRecording() {
@@ -187,7 +272,7 @@ class CameraViewController: UIViewController {
         captureSession = AVCaptureSession()
         captureSession.sessionPreset = .high
 
-        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
+        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
             print("Failed to get camera device")
             return
         }
