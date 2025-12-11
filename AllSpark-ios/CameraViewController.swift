@@ -7,12 +7,10 @@ class CameraViewController: UIViewController {
 
     // Camera session
     private var captureSession: AVCaptureSession!
-    private var previewLayer: AVCaptureVideoPreviewLayer!
     private var videoOutput: AVCaptureVideoDataOutput!
 
     // Image processing
     private let context = CIContext()
-    private var currentCIImage: CIImage?
 
     // Face detection
     private var faceDetectionRequest: VNDetectFaceRectanglesRequest!
@@ -24,7 +22,6 @@ class CameraViewController: UIViewController {
     private var adapter: AVAssetWriterInputPixelBufferAdaptor?
     private var isRecording = false
     private var sessionAtSourceTime: CMTime?
-    private var recordingStartTime: CMTime?
     private var videoURL: URL?
 
     // Display layer
