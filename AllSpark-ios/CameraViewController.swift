@@ -9,6 +9,10 @@ class CameraViewController: UIViewController {
     private var captureSession: AVCaptureSession!
     private var videoOutput: AVCaptureVideoDataOutput!
 
+    // Orientation management
+    private var videoRotationAngle: CGFloat = 90
+    private var rotationCoordinator: AnyObject? // Store as AnyObject to avoid availability checks on property decl
+
     // Image processing
     private let context = CIContext()
 
@@ -107,8 +111,8 @@ class CameraViewController: UIViewController {
 
             let outputSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: 1080,
-                AVVideoHeightKey: 1920
+                AVVideoWidthKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1920 : 1080,
+                AVVideoHeightKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1080 : 1920
             ]
 
             assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
@@ -119,8 +123,8 @@ class CameraViewController: UIViewController {
 
                 let sourcePixelBufferAttributes: [String: Any] = [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: 1080,
-                    kCVPixelBufferHeightKey as String: 1920
+                    kCVPixelBufferWidthKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1920 : 1080,
+                    kCVPixelBufferHeightKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1080 : 1920
                 ]
 
                 adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
@@ -205,9 +209,43 @@ class CameraViewController: UIViewController {
             captureSession.addOutput(videoOutput)
         }
 
-        // Set video orientation
-        if let connection = videoOutput.connection(with: .video) {
-            connection.videoOrientation = .portrait
+
+        // Set initial video orientation
+        updateVideoOrientation()
+    }
+
+    private func updateVideoOrientation() {
+        if #available(iOS 17.0, *), let videoCaptureDevice = captureSession.inputs.first as? AVCaptureDeviceInput {
+            // Initialize RotationCoordinator if needed
+            if rotationCoordinator == nil {
+                let coordinator = AVCaptureDevice.RotationCoordinator(device: videoCaptureDevice.device, previewLayer: nil)
+                self.rotationCoordinator = coordinator
+
+                // Observe changes
+                NotificationCenter.default.addObserver(forName: NSNotification.Name("AVCaptureDeviceRotationCoordinatorVideoRotationAngleDidChangeNotification"), object: coordinator, queue: .main) { [weak self] _ in
+                    self?.updateVideoOrientation()
+                }
+            }
+
+            if let coordinator = rotationCoordinator as? AVCaptureDevice.RotationCoordinator {
+                self.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+                 if let connection = videoOutput.connection(with: .video) {
+                    connection.videoRotationAngle = self.videoRotationAngle
+                 }
+            }
+        } else {
+             // Fallback for older iOS
+             if let connection = videoOutput.connection(with: .video) {
+                 connection.videoOrientation = .portrait
+             }
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.updateVideoOrientation()
         }
     }
 
