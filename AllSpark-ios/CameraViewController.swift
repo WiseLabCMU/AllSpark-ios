@@ -3,7 +3,7 @@ import AVFoundation
 import Vision
 import CoreImage
 
-class CameraViewController: UIViewController {
+class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINavigationControllerDelegate {
 
     // Camera session
     private var captureSession: AVCaptureSession!
@@ -33,6 +33,7 @@ class CameraViewController: UIViewController {
     private var imageView: UIImageView!
     private var recordButton: UIButton!
     private var switchCameraButton: UIButton!
+    private var uploadButton: UIButton!
     private var timerLabel: UILabel!
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
@@ -44,6 +45,7 @@ class CameraViewController: UIViewController {
         setupRecordButton()
 
         setupSwitchCameraButton()
+        setupUploadButton()
         setupTimerLabel()
         setupCamera()
         setupFaceDetection()
@@ -122,6 +124,30 @@ class CameraViewController: UIViewController {
             switchCameraButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
             switchCameraButton.widthAnchor.constraint(equalToConstant: 50),
             switchCameraButton.heightAnchor.constraint(equalToConstant: 50)
+        ])
+
+    }
+
+    private func setupUploadButton() {
+        uploadButton = UIButton(type: .system)
+        uploadButton.translatesAutoresizingMaskIntoConstraints = false
+        if let image = UIImage(systemName: "square.and.arrow.up") {
+             uploadButton.setImage(image, for: .normal)
+        } else {
+            uploadButton.setTitle("Upload", for: .normal)
+        }
+        uploadButton.tintColor = .white
+        uploadButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        uploadButton.layer.cornerRadius = 25
+        uploadButton.addTarget(self, action: #selector(promptForUpload), for: .touchUpInside)
+
+        view.addSubview(uploadButton)
+
+        NSLayoutConstraint.activate([
+            uploadButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            uploadButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            uploadButton.widthAnchor.constraint(equalToConstant: 50),
+            uploadButton.heightAnchor.constraint(equalToConstant: 50)
         ])
     }
 
@@ -491,6 +517,93 @@ class CameraViewController: UIViewController {
         } else {
             print("Failed to create CVPixelBuffer")
         }
+    }
+}
+
+
+
+extension CameraViewController {
+    @objc private func promptForUpload() {
+        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.movie], asCopy: true)
+        documentPicker.delegate = self
+        documentPicker.allowsMultipleSelection = false
+
+        // Set default directory to Documents
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        documentPicker.directoryURL = documentsPath
+
+        present(documentPicker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let selectedFileURL = urls.first else { return }
+        uploadVideo(at: selectedFileURL)
+    }
+
+    private func uploadVideo(at fileURL: URL) {
+        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:3000"
+
+        // Opportunistic protocol handling
+        if !hostString.lowercased().hasPrefix("http://") && !hostString.lowercased().hasPrefix("https://") {
+            hostString = "http://" + hostString
+        }
+
+        guard let serverURL = URL(string: hostString)?.appendingPathComponent("upload") else {
+            print("Invalid server URL constructed from: \(hostString)")
+            let alert = UIAlertController(title: "Configuration Error", message: "Invalid Server Host: \(hostString)", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            self.present(alert, animated: true)
+            return
+        }
+
+        var request = URLRequest(url: serverURL)
+        request.httpMethod = "POST"
+
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let videoData: Data
+        do {
+            videoData = try Data(contentsOf: fileURL)
+        } catch {
+            print("Failed to load video data: \(error)")
+            return
+        }
+
+        var body = Data()
+        let filename = fileURL.lastPathComponent
+        let mimetype = "video/quicktime" // Assuming valid type usually
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"video\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimetype)\r\n\r\n".data(using: .utf8)!)
+        body.append(videoData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    let alert = UIAlertController(title: "Upload Failed", message: error.localizedDescription, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                    let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
+                } else {
+                     let alert = UIAlertController(title: "Upload Failed", message: "Server returned an error.", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
+                }
+            }
+        }
+        task.resume()
     }
 }
 

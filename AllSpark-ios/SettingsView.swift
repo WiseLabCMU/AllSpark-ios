@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftyPing
 
 struct SettingsView: View {
-    @State private var pingHost: String = "api.chatgpt.com"
+    @AppStorage("serverHost") private var serverHost: String = "localhost:3000"
     @State private var displayText: String = "Ready."
 
     var body: some View {
@@ -13,7 +13,11 @@ struct SettingsView: View {
 
             Spacer()
 
-            TextField("Enter text", text: $pingHost)
+            Text("Upload Server Host")
+                 .font(.headline)
+                 .padding(.top, 10)
+
+            TextField("Server Host", text: $serverHost)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .frame(maxWidth: 300)
                 .multilineTextAlignment(.center)
@@ -23,9 +27,9 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.never)
 
             Button(action: {
-                displayText = "pinging \(pingHost)..."
+                displayText = "pinging \(serverHost)..."
                 // Ping once
-                let once = try? SwiftyPing(host: pingHost, configuration: PingConfiguration(interval: 0.5, with: 5), queue: DispatchQueue.global())
+                let once = try? SwiftyPing(host: serverHost, configuration: PingConfiguration(interval: 0.5, with: 5), queue: DispatchQueue.global())
                 once?.observer = { (response) in
                     let duration = response.duration
                     let byteCount = response.byteCount
