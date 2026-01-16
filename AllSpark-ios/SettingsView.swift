@@ -8,14 +8,14 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .center) {
             Text("AllSpark Network")
-                 .font(.largeTitle)
-                 .padding(.top, 20)
+                .font(.largeTitle)
+                .padding(.top, 20)
 
             Spacer()
 
             Text("Upload Server Host")
-                 .font(.headline)
-                 .padding(.top, 10)
+                .font(.headline)
+                .padding(.top, 10)
 
             TextField("Server Host", text: $serverHost)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -52,16 +52,66 @@ struct SettingsView: View {
             }
             .padding()
 
+            Button(action: {
+                testHTTPConnection()
+            }) {
+                Text("Test HTTP Connection")
+            }
+            .padding()
+
             Spacer()
 
             Text(displayText)
-                 .font(.title)
-                 .padding()
+                .font(.title)
+                .padding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.gray.opacity(0.2))
     }
 
+    private func testHTTPConnection() {
+        displayText = "Testing HTTP connection to \(serverHost)..."
+
+        var hostString = serverHost
+        // Ensure it has http:// prefix
+        if !hostString.lowercased().hasPrefix("http://") && !hostString.lowercased().hasPrefix("https://") {
+            hostString = "http://" + hostString
+        }
+
+        guard let url = URL(string: hostString + "/api/health") else {
+            displayText = "Invalid URL: \(hostString)"
+            return
+        }
+
+        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    displayText = "HTTP Connection Failed\nError: \(error.localizedDescription)"
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode == 200 {
+                        if let data = data,
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            let status = json["status"] as? String ?? "unknown"
+                            let timestamp = json["timestamp"] as? String ?? "unknown"
+                            let uptime = json["uptime"] as? Double ?? 0
+
+                            displayText = "✓ HTTP Connection Successful\nStatus: \(status)\nUptime: \(String(format: "%.1f", uptime))s\nTimestamp: \(timestamp)"
+                        } else {
+                            displayText = "✓ Server responded (200)\nBut could not parse response"
+                        }
+                    } else {
+                        displayText = "HTTP Error\nStatus Code: \(httpResponse.statusCode)"
+                    }
+                } else {
+                    displayText = "Unexpected response type"
+                }
+            }
+        }
+        task.resume()
+    }
 }
 
 #Preview {
