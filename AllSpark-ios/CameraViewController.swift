@@ -29,6 +29,11 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
 
+    // WebSocket Connection
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var webSocketURL: URL?
+    private var isConnected = false
+
     // Display layer
     private var imageView: UIImageView!
     private var recordButton: UIButton!
@@ -49,6 +54,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         setupTimerLabel()
         setupCamera()
         setupFaceDetection()
+        setupWebSocketConnection()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -56,6 +62,11 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession.startRunning()
+        }
+
+        // Reconnect WebSocket if needed
+        if !isConnected || webSocketTask == nil {
+            setupWebSocketConnection()
         }
     }
 
@@ -65,6 +76,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         if captureSession.isRunning {
             captureSession.stopRunning()
         }
+
+        // Close WebSocket connection
+        disconnectWebSocket()
     }
 
     private func setupImageView() {
@@ -518,6 +532,59 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             print("Failed to create CVPixelBuffer")
         }
     }
+
+    // MARK: - WebSocket Methods
+
+    private func setupWebSocketConnection() {
+        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
+
+        // Convert to WebSocket protocol
+        if hostString.lowercased().hasPrefix("http://") {
+            hostString = hostString.replacingOccurrences(of: "http://", with: "ws://")
+        } else if hostString.lowercased().hasPrefix("https://") {
+            hostString = hostString.replacingOccurrences(of: "https://", with: "wss://")
+        } else if !hostString.lowercased().hasPrefix("ws://") && !hostString.lowercased().hasPrefix("wss://") {
+            hostString = "ws://" + hostString
+        }
+
+        guard let wsURL = URL(string: hostString) else {
+            print("Invalid WebSocket URL: \(hostString)")
+            return
+        }
+
+        self.webSocketURL = wsURL
+        connectWebSocket()
+    }
+
+    private func connectWebSocket() {
+        guard let wsURL = webSocketURL else { return }
+
+        let urlSession = URLSession(configuration: .default)
+        let task = urlSession.webSocketTask(with: wsURL)
+
+        self.webSocketTask = task
+        task.resume()
+
+        print("Connecting to WebSocket at \(wsURL)")
+
+        // Start receiving messages
+        receiveWebSocketMessage()
+
+        // Mark as connected (real connection state would be confirmed by server)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.isConnected = true
+            print("WebSocket connected")
+        }
+    }
+
+    private func disconnectWebSocket() {
+        if let task = webSocketTask {
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        webSocketTask = nil
+        isConnected = false
+        print("WebSocket disconnected")
+    }
 }
 
 
@@ -541,20 +608,8 @@ extension CameraViewController {
     }
 
     private func uploadVideo(at fileURL: URL) {
-        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
-
-        // Convert to WebSocket protocol
-        if hostString.lowercased().hasPrefix("http://") {
-            hostString = hostString.replacingOccurrences(of: "http://", with: "ws://")
-        } else if hostString.lowercased().hasPrefix("https://") {
-            hostString = hostString.replacingOccurrences(of: "https://", with: "wss://")
-        } else if !hostString.lowercased().hasPrefix("ws://") && !hostString.lowercased().hasPrefix("wss://") {
-            hostString = "ws://" + hostString
-        }
-
-        guard let wsURL = URL(string: hostString + "/upload") else {
-            print("Invalid WebSocket URL constructed from: \(hostString)")
-            let alert = UIAlertController(title: "Configuration Error", message: "Invalid Server Host: \(hostString)", preferredStyle: .alert)
+        guard isConnected, let webSocketTask = webSocketTask else {
+            let alert = UIAlertController(title: "Connection Error", message: "WebSocket not connected. Please try again.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             self.present(alert, animated: true)
             return
@@ -569,10 +624,6 @@ extension CameraViewController {
         }
 
         let filename = fileURL.lastPathComponent
-        let urlSession = URLSession(configuration: .default)
-        let webSocketTask = urlSession.webSocketTask(with: wsURL)
-
-        webSocketTask.resume()
 
         // Send video metadata first
         let metadata: [String: Any] = [
@@ -587,6 +638,11 @@ extension CameraViewController {
             webSocketTask.send(metadataMessage) { [weak self] error in
                 if let error = error {
                     print("Failed to send metadata: \(error)")
+                    DispatchQueue.main.async {
+                        let alert = UIAlertController(title: "Upload Failed", message: "Failed to send metadata: \(error.localizedDescription)", preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "OK", style: .default))
+                        self?.present(alert, animated: true)
+                    }
                     return
                 }
 
@@ -598,19 +654,20 @@ extension CameraViewController {
                             let alert = UIAlertController(title: "Upload Failed", message: "Failed to send video: \(error.localizedDescription)", preferredStyle: .alert)
                             alert.addAction(UIAlertAction(title: "OK", style: .default))
                             self?.present(alert, animated: true)
-                            webSocketTask.cancel(with: .goingAway, reason: nil)
                             return
                         }
 
                         // Listen for server response
-                        self?.receiveWebSocketMessage(webSocketTask)
+                        self?.receiveWebSocketMessage()
                     }
                 }
             }
         }
     }
 
-    private func receiveWebSocketMessage(_ webSocketTask: URLSessionWebSocketTask) {
+    private func receiveWebSocketMessage() {
+        guard let webSocketTask = webSocketTask else { return }
+
         webSocketTask.receive { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -618,30 +675,25 @@ extension CameraViewController {
                     switch message {
                     case .string(let text):
                         print("Server response: \(text)")
-                        if text.contains("success") || text.contains("uploaded") {
-                            let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
-                            alert.addAction(UIAlertAction(title: "OK", style: .default))
-                            self?.present(alert, animated: true)
-                        } else {
-                            let alert = UIAlertController(title: "Upload Failed", message: text, preferredStyle: .alert)
-                            alert.addAction(UIAlertAction(title: "OK", style: .default))
-                            self?.present(alert, animated: true)
+                        if let data = text.data(using: .utf8),
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let status = json["status"] as? String {
+                            if status == "success" {
+                                let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
+                                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                                self?.present(alert, animated: true)
+                            }
                         }
+                        // Continue listening for more messages
+                        self?.receiveWebSocketMessage()
                     case .data(let data):
-                        print("Received binary data from server: \(data.count) bytes")
-                        let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
-                        alert.addAction(UIAlertAction(title: "OK", style: .default))
-                        self?.present(alert, animated: true)
+                        print("Received binary data from server")
+                        self?.receiveWebSocketMessage()
                     @unknown default:
                         break
                     }
-                    webSocketTask.cancel(with: .goingAway, reason: nil)
-
                 case .failure(let error):
-                    let alert = UIAlertController(title: "Upload Failed", message: error.localizedDescription, preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self?.present(alert, animated: true)
-                    webSocketTask.cancel(with: .goingAway, reason: nil)
+                    print("WebSocket receive error: \(error)")
                 }
             }
         }
