@@ -676,12 +676,26 @@ extension CameraViewController {
                     case .string(let text):
                         print("Server response: \(text)")
                         if let data = text.data(using: .utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let status = json["status"] as? String {
-                            if status == "success" {
-                                let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
-                                alert.addAction(UIAlertAction(title: "OK", style: .default))
-                                self?.present(alert, animated: true)
+                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+                            // Handle command messages
+                            if let command = json["command"] as? String {
+                                switch command {
+                                case "record":
+                                    let commandMessage = json["message"] as? String ?? "Record command received from server"
+                                    let alert = UIAlertController(title: "Record Command", message: commandMessage, preferredStyle: .alert)
+                                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                                    self?.present(alert, animated: true)
+                                default:
+                                    print("Unknown command: \(command)")
+                                }
+                            } else if let status = json["status"] as? String {
+                                // Handle status messages
+                                if status == "success" {
+                                    let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
+                                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                                    self?.present(alert, animated: true)
+                                }
                             }
                         }
                         // Continue listening for more messages
