@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftyPing
 
 struct SettingsView: View {
-    @AppStorage("serverHost") private var serverHost: String = "localhost:3000"
+    @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
     @State private var displayText: String = "Ready."
 
     var body: some View {

@@ -541,26 +541,24 @@ extension CameraViewController {
     }
 
     private func uploadVideo(at fileURL: URL) {
-        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:3000"
+        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
 
-        // Opportunistic protocol handling
-        if !hostString.lowercased().hasPrefix("http://") && !hostString.lowercased().hasPrefix("https://") {
-            hostString = "http://" + hostString
+        // Convert to WebSocket protocol
+        if hostString.lowercased().hasPrefix("http://") {
+            hostString = hostString.replacingOccurrences(of: "http://", with: "ws://")
+        } else if hostString.lowercased().hasPrefix("https://") {
+            hostString = hostString.replacingOccurrences(of: "https://", with: "wss://")
+        } else if !hostString.lowercased().hasPrefix("ws://") && !hostString.lowercased().hasPrefix("wss://") {
+            hostString = "ws://" + hostString
         }
 
-        guard let serverURL = URL(string: hostString)?.appendingPathComponent("upload") else {
-            print("Invalid server URL constructed from: \(hostString)")
+        guard let wsURL = URL(string: hostString + "/upload") else {
+            print("Invalid WebSocket URL constructed from: \(hostString)")
             let alert = UIAlertController(title: "Configuration Error", message: "Invalid Server Host: \(hostString)", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             self.present(alert, animated: true)
             return
         }
-
-        var request = URLRequest(url: serverURL)
-        request.httpMethod = "POST"
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let videoData: Data
         do {
@@ -570,40 +568,83 @@ extension CameraViewController {
             return
         }
 
-        var body = Data()
         let filename = fileURL.lastPathComponent
-        let mimetype = "video/quicktime" // Assuming valid type usually
+        let urlSession = URLSession(configuration: .default)
+        let webSocketTask = urlSession.webSocketTask(with: wsURL)
 
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"video\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimetype)\r\n\r\n".data(using: .utf8)!)
-        body.append(videoData)
-        body.append("\r\n".data(using: .utf8)!)
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        webSocketTask.resume()
 
-        request.httpBody = body
+        // Send video metadata first
+        let metadata: [String: Any] = [
+            "filename": filename,
+            "filesize": videoData.count,
+            "mimetype": "video/quicktime"
+        ]
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
+        if let jsonData = try? JSONSerialization.data(withJSONObject: metadata, options: []),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            let metadataMessage = URLSessionWebSocketTask.Message.string(jsonString)
+            webSocketTask.send(metadataMessage) { [weak self] error in
                 if let error = error {
-                    let alert = UIAlertController(title: "Upload Failed", message: error.localizedDescription, preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self?.present(alert, animated: true)
+                    print("Failed to send metadata: \(error)")
                     return
                 }
 
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                    let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self?.present(alert, animated: true)
-                } else {
-                     let alert = UIAlertController(title: "Upload Failed", message: "Server returned an error.", preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self?.present(alert, animated: true)
+                // Send video data as binary message
+                let dataMessage = URLSessionWebSocketTask.Message.data(videoData)
+                webSocketTask.send(dataMessage) { [weak self] error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            let alert = UIAlertController(title: "Upload Failed", message: "Failed to send video: \(error.localizedDescription)", preferredStyle: .alert)
+                            alert.addAction(UIAlertAction(title: "OK", style: .default))
+                            self?.present(alert, animated: true)
+                            webSocketTask.cancel(with: .goingAway, reason: nil)
+                            return
+                        }
+
+                        // Listen for server response
+                        self?.receiveWebSocketMessage(webSocketTask)
+                    }
                 }
             }
         }
-        task.resume()
+    }
+
+    private func receiveWebSocketMessage(_ webSocketTask: URLSessionWebSocketTask) {
+        webSocketTask.receive { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        print("Server response: \(text)")
+                        if text.contains("success") || text.contains("uploaded") {
+                            let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
+                            alert.addAction(UIAlertAction(title: "OK", style: .default))
+                            self?.present(alert, animated: true)
+                        } else {
+                            let alert = UIAlertController(title: "Upload Failed", message: text, preferredStyle: .alert)
+                            alert.addAction(UIAlertAction(title: "OK", style: .default))
+                            self?.present(alert, animated: true)
+                        }
+                    case .data(let data):
+                        print("Received binary data from server: \(data.count) bytes")
+                        let alert = UIAlertController(title: "Success", message: "Video uploaded successfully!", preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "OK", style: .default))
+                        self?.present(alert, animated: true)
+                    @unknown default:
+                        break
+                    }
+                    webSocketTask.cancel(with: .goingAway, reason: nil)
+
+                case .failure(let error):
+                    let alert = UIAlertController(title: "Upload Failed", message: error.localizedDescription, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
+                    webSocketTask.cancel(with: .goingAway, reason: nil)
+                }
+            }
+        }
     }
 }
 
