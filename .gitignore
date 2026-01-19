@@ -89,3 +89,11 @@ Icon[
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Keys and certificates
+*.pem
+*.crt
+*.key
+*.cert
+*.p12
+*.pfx
