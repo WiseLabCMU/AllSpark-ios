@@ -34,6 +34,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var webSocketTask: URLSessionWebSocketTask?
     private var webSocketURL: URL?
     private var isConnected = false
+    private var isSecureProtocol = false
 
     // Display layer
     private var imageView: UIImageView!
@@ -43,6 +44,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var timerLabel: UILabel!
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
+    private var connectionStatusIcon: UIButton!
+    private var securityStatusIcon: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -53,6 +56,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         setupSwitchCameraButton()
         setupUploadButton()
         setupTimerLabel()
+        setupConnectionStatusIcon()
+        setupSecurityStatusIcon()
         setupCamera()
         setupFaceDetection()
         setupWebSocketConnection()
@@ -186,6 +191,78 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             timerLabel.widthAnchor.constraint(equalToConstant: 80),
             timerLabel.heightAnchor.constraint(equalToConstant: 30)
         ])
+    }
+
+    private func setupConnectionStatusIcon() {
+        connectionStatusIcon = UIButton(type: .system)
+        connectionStatusIcon.translatesAutoresizingMaskIntoConstraints = false
+        connectionStatusIcon.tintColor = .white
+        connectionStatusIcon.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        connectionStatusIcon.layer.cornerRadius = 20
+        connectionStatusIcon.isUserInteractionEnabled = false // Disable interaction, just display
+
+        view.addSubview(connectionStatusIcon)
+
+        NSLayoutConstraint.activate([
+            connectionStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            connectionStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -80),
+            connectionStatusIcon.widthAnchor.constraint(equalToConstant: 40),
+            connectionStatusIcon.heightAnchor.constraint(equalToConstant: 40)
+        ])
+
+        updateConnectionStatusIcon()
+    }
+
+    private func setupSecurityStatusIcon() {
+        securityStatusIcon = UIButton(type: .system)
+        securityStatusIcon.translatesAutoresizingMaskIntoConstraints = false
+        securityStatusIcon.tintColor = .white
+        securityStatusIcon.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        securityStatusIcon.layer.cornerRadius = 20
+        securityStatusIcon.isUserInteractionEnabled = false // Disable interaction, just display
+
+        view.addSubview(securityStatusIcon)
+
+        NSLayoutConstraint.activate([
+            securityStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            securityStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -130),
+            securityStatusIcon.widthAnchor.constraint(equalToConstant: 40),
+            securityStatusIcon.heightAnchor.constraint(equalToConstant: 40)
+        ])
+
+        updateSecurityStatusIcon()
+    }
+
+    private func updateConnectionStatusIcon() {
+        DispatchQueue.main.async { [weak self] in
+            if self?.isConnected ?? false {
+                if let image = UIImage(systemName: "wifi") {
+                    self?.connectionStatusIcon.setImage(image, for: .normal)
+                    self?.connectionStatusIcon.tintColor = .systemGreen
+                }
+            } else {
+                if let image = UIImage(systemName: "wifi.slash") {
+                    self?.connectionStatusIcon.setImage(image, for: .normal)
+                    self?.connectionStatusIcon.tintColor = .systemRed
+                }
+            }
+        }
+    }
+
+    private func updateSecurityStatusIcon() {
+        DispatchQueue.main.async { [weak self] in
+            if self?.isSecureProtocol ?? false {
+                if let image = UIImage(systemName: "lock.fill") {
+                    self?.securityStatusIcon.setImage(image, for: .normal)
+                    self?.securityStatusIcon.tintColor = .systemGreen
+                }
+            } else {
+                if let image = UIImage(systemName: "lock.open") {
+                    self?.securityStatusIcon.setImage(image, for: .normal)
+                    self?.securityStatusIcon.tintColor = .systemOrange
+                }
+            }
+        }
     }
 
 
@@ -548,10 +625,17 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Convert to WebSocket protocol
         if hostString.lowercased().hasPrefix("http://") {
             hostString = hostString.replacingOccurrences(of: "http://", with: "ws://")
+            isSecureProtocol = false
         } else if hostString.lowercased().hasPrefix("https://") {
             hostString = hostString.replacingOccurrences(of: "https://", with: "wss://")
+            isSecureProtocol = true
         } else if !hostString.lowercased().hasPrefix("ws://") && !hostString.lowercased().hasPrefix("wss://") {
             hostString = "ws://" + hostString
+            isSecureProtocol = false
+        } else if hostString.lowercased().hasPrefix("wss://") {
+            isSecureProtocol = true
+        } else if hostString.lowercased().hasPrefix("ws://") {
+            isSecureProtocol = false
         }
 
         guard let wsURL = URL(string: hostString) else {
@@ -560,6 +644,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
 
         self.webSocketURL = wsURL
+        updateSecurityStatusIcon()
         connectWebSocket()
     }
 
@@ -580,6 +665,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Mark as connected (real connection state would be confirmed by server)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.isConnected = true
+            self?.updateConnectionStatusIcon()
             print("WebSocket connected")
         }
     }
@@ -590,6 +676,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
         webSocketTask = nil
         isConnected = false
+        updateConnectionStatusIcon()
         print("WebSocket disconnected")
     }
 }
