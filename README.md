@@ -6,7 +6,8 @@ AllSpark system mobile app for iOS. This app provides real-time video capture, r
 
 - **Camera Capture**: Real-time video capture from front or back camera
 - **Face Detection & Blurring**: Automatic detection and pixelation of faces using Vision framework
-- **Video Recording**: Record video to device with timestamp naming
+- **Video Recording**: Record video to device with timestamp naming (supports MP4 and MOV formats)
+- **Video Format Selection**: Choose between MP4 (default) or MOV format for recordings
 - **Video Upload**: Upload recorded or selected videos to a remote server via WebSocket
 - **Network Configuration**: Configurable server host for flexible deployment
 - **Connection Testing**: Built-in ping and HTTP health check utilities
@@ -34,7 +35,16 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 
 **Sent when**: User selects a video file to upload
 
-**Format:**
+**Format (MP4):**
+```json
+{
+  "filename": "video.mp4",
+  "filesize": 1048576,
+  "mimetype": "video/mp4"
+}
+```
+
+**Format (MOV):**
 ```json
 {
   "filename": "video.mov",
@@ -45,13 +55,17 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 
 **Purpose**: Informs the server about the incoming video file before transmission
 
+**MIME Types**:
+- `"video/mp4"` - For MP4 format files
+- `"video/quicktime"` - For MOV format files
+
 ---
 
 #### 2. Video Upload - Binary Data Message
 
 **Sent immediately after**: Metadata message
 
-**Format**: Raw binary video file data (CVPixelBuffer encoded as MOV format)
+**Format**: Raw binary video file data (MP4 or MOV encoded video stream)
 
 **Purpose**: Transmits the actual video file content to the server
 
@@ -106,7 +120,7 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
   - Additional message context can be included
   - App displays command notification to user
 
-**App Behavior**: 
+**App Behavior**:
 - Parses the command type
 - Displays alert with command name and message
 - Unknown commands are logged but not actioned
@@ -124,12 +138,18 @@ Located in **SettingsView.swift**, allows users to:
    - Supports: IP addresses, hostnames, with or without protocol prefix
    - Automatically converts HTTP/HTTPS to WS/WSS
 
-2. **Ping Server**
+2. **Select Video Format**
+   - Default: `MP4`
+   - Options: `MP4` or `MOV`
+   - Selection applies to all future recordings
+   - Upload metadata includes correct MIME type based on format
+
+3. **Ping Server**
    - Single ICMP ping to test network connectivity
    - Displays round-trip time in milliseconds
    - Shows response byte count
 
-3. **Test HTTP Connection**
+4. **Test HTTP Connection**
    - Calls `/api/health` endpoint
    - Verifies server status and uptime
    - Displays health check response
@@ -164,4 +184,4 @@ iOS App                           Server
 - WebSocket connection state is confirmed after 0.5 second delay (not real-time)
 - Face detection runs on main frame processing queue
 - Video recordings are stored in Documents directory
-- Only `.mov` format is supported for upload 
+- Both MP4 and MOV formats require decoder support on the receiving server

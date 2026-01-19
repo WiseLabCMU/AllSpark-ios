@@ -28,6 +28,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var isRecording = false
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
+    private var videoFormat: AVFileType = .mp4 // Default format
 
     // WebSocket Connection
     private var webSocketTask: URLSessionWebSocketTask?
@@ -278,7 +279,13 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     private func startRecording() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let videoName = "recording_\(Date().timeIntervalSince1970).mov"
+
+        // Load video format preference from UserDefaults
+        let formatString = UserDefaults.standard.string(forKey: "videoFormat") ?? "mp4"
+        let fileExtension = formatString == "mov" ? "mov" : "mp4"
+        let fileType: AVFileType = formatString == "mov" ? .mov : .mp4
+
+        let videoName = "recording_\(Date().timeIntervalSince1970).\(fileExtension)"
         videoURL = documentsPath.appendingPathComponent(videoName)
 
         guard let videoURL = videoURL else { return }
@@ -287,7 +294,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         try? FileManager.default.removeItem(at: videoURL)
 
         do {
-            assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: .mov)
+            assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: fileType)
 
             let outputSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
@@ -625,11 +632,15 @@ extension CameraViewController {
 
         let filename = fileURL.lastPathComponent
 
+        // Determine mimetype based on file extension
+        let fileExtension = (filename as NSString).pathExtension.lowercased()
+        let mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
+
         // Send video metadata first
         let metadata: [String: Any] = [
             "filename": filename,
             "filesize": videoData.count,
-            "mimetype": "video/quicktime"
+            "mimetype": mimetype
         ]
 
         if let jsonData = try? JSONSerialization.data(withJSONObject: metadata, options: []),

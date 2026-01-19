@@ -3,6 +3,7 @@ import SwiftyPing
 
 struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
+    @AppStorage("videoFormat") private var videoFormat: String = "mp4"
     @State private var displayText: String = "Ready."
 
     var body: some View {
@@ -26,7 +27,17 @@ struct SettingsView: View {
                 .autocapitalization(.none)
                 .textInputAutocapitalization(.never)
 
-            Button(action: {
+            Text("Video Format")
+                .font(.headline)
+                .padding(.top, 20)
+
+            Picker("Video Format", selection: $videoFormat) {
+                Text("MP4 (Default)").tag("mp4")
+                Text("MOV").tag("mov")
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 300)
+            .padding()
                 displayText = "pinging \(serverHost)..."
                 // Ping once
                 let once = try? SwiftyPing(host: serverHost, configuration: PingConfiguration(interval: 0.5, with: 5), queue: DispatchQueue.global())
