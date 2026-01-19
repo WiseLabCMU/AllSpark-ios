@@ -622,29 +622,23 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private func setupWebSocketConnection() {
         var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
 
-        // Convert to WebSocket protocol
+        // Strip any existing protocol
         if hostString.lowercased().hasPrefix("http://") {
-            hostString = hostString.replacingOccurrences(of: "http://", with: "ws://")
-            isSecureProtocol = false
+            hostString = String(hostString.dropFirst(7))
         } else if hostString.lowercased().hasPrefix("https://") {
-            hostString = hostString.replacingOccurrences(of: "https://", with: "wss://")
-            isSecureProtocol = true
-        } else if !hostString.lowercased().hasPrefix("ws://") && !hostString.lowercased().hasPrefix("wss://") {
-            hostString = "ws://" + hostString
-            isSecureProtocol = false
-        } else if hostString.lowercased().hasPrefix("wss://") {
-            isSecureProtocol = true
+            hostString = String(hostString.dropFirst(8))
         } else if hostString.lowercased().hasPrefix("ws://") {
-            isSecureProtocol = false
+            hostString = String(hostString.dropFirst(5))
+        } else if hostString.lowercased().hasPrefix("wss://") {
+            hostString = String(hostString.dropFirst(6))
         }
 
-        guard let wsURL = URL(string: hostString) else {
+        guard let wsURLSecure = URL(string: "wss://" + hostString) else {
             print("Invalid WebSocket URL: \(hostString)")
             return
         }
 
-        self.webSocketURL = wsURL
-        updateSecurityStatusIcon()
+        self.webSocketURL = wsURLSecure
         connectWebSocket()
     }
 
@@ -662,14 +656,58 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
         print("Connecting to WebSocket at \(wsURL)")
 
+        // Start receiving messages - this will detect connection errors
+        receiveWebSocketMessage()
+
+        // Set a timeout - if not connected after 5 seconds, try fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            guard let self = self else { return }
+            if !self.isConnected {
+                print("WebSocket connection timeout, attempting fallback...")
+                self.attemptWsFallback()
+            }
+        }
+    }
+
+    private func attemptWsFallback() {
+        guard let wsURL = webSocketURL else { return }
+
+        // Convert wss:// to ws://
+        var wsURLString = wsURL.absoluteString
+        wsURLString = wsURLString.replacingOccurrences(of: "wss://", with: "ws://")
+
+        guard let wsURLFallback = URL(string: wsURLString) else {
+            print("Invalid WebSocket fallback URL: \(wsURLString)")
+            return
+        }
+
+        // Disconnect the current task
+        if let task = webSocketTask {
+            task.cancel(with: .goingAway, reason: nil)
+        }
+
+        let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
+        let config = URLSessionConfiguration.default
+        let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
+        let urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        let task = urlSession.webSocketTask(with: wsURLFallback)
+
+        self.webSocketTask = task
+        self.webSocketURL = wsURLFallback
+        isSecureProtocol = false
+        task.resume()
+
+        print("Connecting to WebSocket fallback at \(wsURLFallback)")
+
         // Start receiving messages
         receiveWebSocketMessage()
 
-        // Mark as connected (real connection state would be confirmed by server)
+        // Mark as connected
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.isConnected = true
             self?.updateConnectionStatusIcon()
-            print("WebSocket connected")
+            self?.updateSecurityStatusIcon()
+            print("WebSocket fallback connected")
         }
     }
 
@@ -728,6 +766,7 @@ extension CameraViewController {
 
         // Send video metadata first
         let metadata: [String: Any] = [
+            "type": "upload",
             "filename": filename,
             "filesize": videoData.count,
             "mimetype": mimetype
@@ -773,6 +812,22 @@ extension CameraViewController {
             DispatchQueue.main.async {
                 switch result {
                 case .success(let message):
+                    // Mark as connected on first successful message
+                    if self?.isConnected == false {
+                        self?.isConnected = true
+                        self?.updateConnectionStatusIcon()
+
+                        // Set secure protocol flag based on actual connection URL
+                        if let webSocketURL = self?.webSocketURL?.absoluteString.lowercased(), webSocketURL.hasPrefix("wss://") {
+                            self?.isSecureProtocol = true
+                        } else {
+                            self?.isSecureProtocol = false
+                        }
+                        self?.updateSecurityStatusIcon()
+
+                        print("WebSocket connected")
+                    }
+
                     switch message {
                     case .string(let text):
                         print("Server response: \(text)")
@@ -809,6 +864,15 @@ extension CameraViewController {
                     }
                 case .failure(let error):
                     print("WebSocket receive error: \(error)")
+
+                    // Check if this is a TLS/connection error and we haven't connected yet
+                    if self?.isConnected == false {
+                        let errorString = error.localizedDescription.lowercased()
+                        if errorString.contains("tls") || errorString.contains("certificate") || errorString.contains("refused") {
+                            print("WSS connection failed with TLS error, attempting WS fallback...")
+                            self?.attemptWsFallback()
+                        }
+                    }
                 }
             }
         }
