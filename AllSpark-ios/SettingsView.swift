@@ -38,6 +38,8 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 300)
             .padding()
+
+            Button(action: {
                 displayText = "pinging \(serverHost)..."
                 // Ping once
                 let once = try? SwiftyPing(host: serverHost, configuration: PingConfiguration(interval: 0.5, with: 5), queue: DispatchQueue.global())
