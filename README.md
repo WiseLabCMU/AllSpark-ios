@@ -179,6 +179,10 @@ iOS App                           Server
    |-- Acknowledge & Display ----> |
 ```
 
+## Icons
+
+Icons used are sourced internally in iOS from SF Symbols Online from a repository like this one: https://github.com/andrewtavis/sf-symbols-online.
+
 ## Known Limitations
 
 - WebSocket connection state is confirmed after 0.5 second delay (not real-time)
