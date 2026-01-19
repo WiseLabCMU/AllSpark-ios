@@ -651,7 +651,10 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private func connectWebSocket() {
         guard let wsURL = webSocketURL else { return }
 
-        let urlSession = URLSession(configuration: .default)
+        let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
+        let config = URLSessionConfiguration.default
+        let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
+        let urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         let task = urlSession.webSocketTask(with: wsURL)
 
         self.webSocketTask = task

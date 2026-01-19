@@ -4,28 +4,16 @@ import SwiftyPing
 struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
     @AppStorage("videoFormat") private var videoFormat: String = "mp4"
+    @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @State private var displayText: String = "Ready."
 
     var body: some View {
         VStack(alignment: .center) {
-            Text("AllSpark Network")
+            Text("Client Settings")
                 .font(.largeTitle)
                 .padding(.top, 20)
 
             Spacer()
-
-            Text("Upload Server Host")
-                .font(.headline)
-                .padding(.top, 10)
-
-            TextField("Server Host", text: $serverHost)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(maxWidth: 300)
-                .multilineTextAlignment(.center)
-                .padding()
-                .keyboardType(.URL)
-                .autocapitalization(.none)
-                .textInputAutocapitalization(.never)
 
             Text("Video Format")
                 .font(.headline)
@@ -38,6 +26,23 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 300)
             .padding()
+
+            Text("Server Host")
+                .font(.headline)
+                .padding(.top, 10)
+
+            TextField("Server Host", text: $serverHost)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(maxWidth: 300)
+                .multilineTextAlignment(.center)
+                .padding()
+                .keyboardType(.URL)
+                .autocapitalization(.none)
+                .textInputAutocapitalization(.never)
+
+            Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
+                .frame(maxWidth: 300)
+                .padding()
 
             Button(action: {
                 displayText = "pinging \(serverHost)..."
@@ -96,7 +101,17 @@ struct SettingsView: View {
             return
         }
 
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+
+        if !verifyCertificate {
+            config.urlCredentialStorage = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        }
+
+        let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: url) { data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
                     displayText = "HTTP Connection Failed\nError: \(error.localizedDescription)"
