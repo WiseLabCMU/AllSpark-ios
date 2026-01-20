@@ -35,6 +35,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var webSocketURL: URL?
     private var isConnected = false
     private var isSecureProtocol = false
+    private var isAttemptingConnection = false
+    private var connectionAttemptTimer: Timer?
 
     // Display layer
     private var imageView: UIImageView!
@@ -68,8 +70,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             self?.captureSession.startRunning()
         }
 
-        // Reconnect WebSocket if needed
-        if !isConnected || webSocketTask == nil {
+        // Reconnect WebSocket if not connected
+        if !isConnected && !isAttemptingConnection {
             setupWebSocketConnection()
         }
     }
@@ -216,11 +218,19 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private func updateConnectionStatusIcon() {
         DispatchQueue.main.async { [weak self] in
             if self?.isConnected ?? false {
+                // Connected - green
                 if let image = UIImage(systemName: "wifi") {
                     self?.connectionStatusIcon.setImage(image, for: .normal)
                     self?.connectionStatusIcon.tintColor = .systemGreen
                 }
+            } else if self?.isAttemptingConnection ?? false {
+                // Attempting connection - amber/orange
+                if let image = UIImage(systemName: "wifi") {
+                    self?.connectionStatusIcon.setImage(image, for: .normal)
+                    self?.connectionStatusIcon.tintColor = .systemOrange
+                }
             } else {
+                // Disconnected - red
                 if let image = UIImage(systemName: "wifi.slash") {
                     self?.connectionStatusIcon.setImage(image, for: .normal)
                     self?.connectionStatusIcon.tintColor = .systemRed
@@ -610,6 +620,10 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     private func connectWebSocket() {
         guard let wsURL = webSocketURL else { return }
+        guard !isAttemptingConnection else { return } // Prevent multiple simultaneous attempts
+
+        isAttemptingConnection = true
+        updateConnectionStatusIcon()
 
         // Set secure protocol flag based on connection URL
         if wsURL.absoluteString.lowercased().hasPrefix("wss://") {
@@ -629,21 +643,13 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
         print("Connecting to WebSocket at \(wsURL)")
 
-        // Start receiving messages - this will detect connection errors
+        // Start receiving messages - this will detect connection errors and trigger fallback if needed
         receiveWebSocketMessage()
-
-        // Set a timeout - if not connected after 5 seconds, try fallback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            guard let self = self else { return }
-            if !self.isConnected {
-                print("WebSocket connection timeout, attempting fallback...")
-                self.attemptWsFallback()
-            }
-        }
     }
 
     private func attemptWsFallback() {
         guard let wsURL = webSocketURL else { return }
+        guard isSecureProtocol else { return } // Only fallback if we were trying WSS
 
         // Convert wss:// to ws://
         var wsURLString = wsURL.absoluteString
@@ -654,33 +660,21 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             return
         }
 
-        // Disconnect the current task
+        // Disconnect the current failed WSS task
         if let task = webSocketTask {
             task.cancel(with: .goingAway, reason: nil)
         }
+        webSocketTask = nil
+        isAttemptingConnection = false
 
-        let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
-        let config = URLSessionConfiguration.default
-        let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
-        let urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        let task = urlSession.webSocketTask(with: wsURLFallback)
-
-        self.webSocketTask = task
-        self.webSocketURL = wsURLFallback
+        // Update the URL to the fallback WS URL
+        webSocketURL = wsURLFallback
         isSecureProtocol = false
-        task.resume()
 
-        print("Connecting to WebSocket fallback at \(wsURLFallback)")
+        print("WSS connection failed, attempting WS fallback at \(wsURLFallback)")
 
-        // Start receiving messages
-        receiveWebSocketMessage()
-
-        // Mark as connected
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.isConnected = true
-            self?.updateConnectionStatusIcon()
-            print("WebSocket fallback connected")
-        }
+        // Now connect using WS
+        connectWebSocket()
     }
 
     private func disconnectWebSocket() {
@@ -689,6 +683,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
         webSocketTask = nil
         isConnected = false
+        isAttemptingConnection = false
+        connectionAttemptTimer?.invalidate()
+        connectionAttemptTimer = nil
         updateConnectionStatusIcon()
         print("WebSocket disconnected")
     }
@@ -780,16 +777,22 @@ extension CameraViewController {
     private func receiveWebSocketMessage() {
         guard let webSocketTask = webSocketTask else { return }
 
+        // Set a flag to track if this is the first receive attempt for this connection
+        let isFirstReceive = !isConnected && isAttemptingConnection
+
         webSocketTask.receive { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let message):
-                    // Mark as connected on first successful message
-                    if self?.isConnected == false {
+                    // Mark as connected on first successful receive (connection is established)
+                    if self?.isConnected == false && self?.isAttemptingConnection == true {
                         self?.isConnected = true
+                        self?.isAttemptingConnection = false
+                        self?.connectionAttemptTimer?.invalidate()
+                        self?.connectionAttemptTimer = nil
                         self?.updateConnectionStatusIcon()
 
-                        print("WebSocket connected")
+                        print("WebSocket connection established")
                     }
 
                     switch message {
@@ -829,13 +832,40 @@ extension CameraViewController {
                 case .failure(let error):
                     print("WebSocket receive error: \(error)")
 
-                    // Check if this is a TLS/connection error and we haven't connected yet
-                    if self?.isConnected == false {
+                    // If we haven't connected yet and were using WSS, try the WS fallback
+                    if self?.isConnected == false && self?.isSecureProtocol == true {
                         let errorString = error.localizedDescription.lowercased()
-                        if errorString.contains("tls") || errorString.contains("certificate") || errorString.contains("refused") {
-                            print("WSS connection failed with TLS error, attempting WS fallback...")
+                        // Check for common secure connection errors
+                        if errorString.contains("tls") || errorString.contains("certificate") || errorString.contains("refused") || errorString.contains("connection") {
+                            print("WSS connection failed, attempting WS fallback...")
+                            self?.connectionAttemptTimer?.invalidate()
+                            self?.connectionAttemptTimer = nil
                             self?.attemptWsFallback()
                         }
+                    } else if self?.isConnected == false {
+                        // WS fallback also failed
+                        print("WS fallback connection failed")
+                        self?.connectionAttemptTimer?.invalidate()
+                        self?.connectionAttemptTimer = nil
+                        self?.isAttemptingConnection = false
+                        self?.updateConnectionStatusIcon()
+                    }
+                }
+            }
+        }
+
+        // On first receive, set a short timeout to mark connection as established if no early error
+        if isFirstReceive {
+            connectionAttemptTimer?.invalidate()
+            connectionAttemptTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                // If we still haven't connected after 0.5s but no error occurred, mark as connected
+                if self?.isConnected == false && self?.isAttemptingConnection == true {
+                    DispatchQueue.main.async {
+                        self?.isConnected = true
+                        self?.isAttemptingConnection = false
+                        self?.connectionAttemptTimer = nil
+                        self?.updateConnectionStatusIcon()
+                        print("WebSocket connection established (timeout)")
                     }
                 }
             }
