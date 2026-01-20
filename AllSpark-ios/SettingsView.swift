@@ -19,7 +19,7 @@ struct SettingsView: View {
                 .padding(.top, 20)
 
             Picker("Video Format", selection: $videoFormat) {
-                Text("MP4 (Default)").tag("mp4")
+                Text("MP4").tag("mp4")
                 Text("MOV").tag("mov")
             }
             .pickerStyle(.segmented)

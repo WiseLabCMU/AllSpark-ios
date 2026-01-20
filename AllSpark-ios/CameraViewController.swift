@@ -337,7 +337,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             stopRecording()
             if let image = UIImage(systemName: "stop.circle.fill") {
                  recordButton.setImage(image, for: .normal)
-                 recordButton.tintColor = .white
+                 recordButton.tintColor = .gray
             } else {
                 recordButton.setTitle("Record", for: .normal)
                 recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
