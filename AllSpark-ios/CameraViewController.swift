@@ -45,7 +45,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
     private var connectionStatusIcon: UIButton!
-    private var securityStatusIcon: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -57,7 +56,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         setupUploadButton()
         setupTimerLabel()
         setupConnectionStatusIcon()
-        setupSecurityStatusIcon()
         setupCamera()
         setupFaceDetection()
         setupWebSocketConnection()
@@ -213,25 +211,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         updateConnectionStatusIcon()
     }
 
-    private func setupSecurityStatusIcon() {
-        securityStatusIcon = UIButton(type: .system)
-        securityStatusIcon.translatesAutoresizingMaskIntoConstraints = false
-        securityStatusIcon.tintColor = .white
-        securityStatusIcon.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        securityStatusIcon.layer.cornerRadius = 20
-        securityStatusIcon.isUserInteractionEnabled = false // Disable interaction, just display
 
-        view.addSubview(securityStatusIcon)
-
-        NSLayoutConstraint.activate([
-            securityStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            securityStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -130),
-            securityStatusIcon.widthAnchor.constraint(equalToConstant: 40),
-            securityStatusIcon.heightAnchor.constraint(equalToConstant: 40)
-        ])
-
-        updateSecurityStatusIcon()
-    }
 
     private func updateConnectionStatusIcon() {
         DispatchQueue.main.async { [weak self] in
@@ -249,21 +229,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
     }
 
-    private func updateSecurityStatusIcon() {
-        DispatchQueue.main.async { [weak self] in
-            if self?.isSecureProtocol ?? false {
-                if let image = UIImage(systemName: "lock.fill") {
-                    self?.securityStatusIcon.setImage(image, for: .normal)
-                    self?.securityStatusIcon.tintColor = .systemGreen
-                }
-            } else {
-                if let image = UIImage(systemName: "lock.open") {
-                    self?.securityStatusIcon.setImage(image, for: .normal)
-                    self?.securityStatusIcon.tintColor = .systemOrange
-                }
-            }
-        }
-    }
+
 
 
     @objc private func switchCamera() {
@@ -645,6 +611,13 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private func connectWebSocket() {
         guard let wsURL = webSocketURL else { return }
 
+        // Set secure protocol flag based on connection URL
+        if wsURL.absoluteString.lowercased().hasPrefix("wss://") {
+            isSecureProtocol = true
+        } else {
+            isSecureProtocol = false
+        }
+
         let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
         let config = URLSessionConfiguration.default
         let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
@@ -706,7 +679,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.isConnected = true
             self?.updateConnectionStatusIcon()
-            self?.updateSecurityStatusIcon()
             print("WebSocket fallback connected")
         }
     }
@@ -816,14 +788,6 @@ extension CameraViewController {
                     if self?.isConnected == false {
                         self?.isConnected = true
                         self?.updateConnectionStatusIcon()
-
-                        // Set secure protocol flag based on actual connection URL
-                        if let webSocketURL = self?.webSocketURL?.absoluteString.lowercased(), webSocketURL.hasPrefix("wss://") {
-                            self?.isSecureProtocol = true
-                        } else {
-                            self?.isSecureProtocol = false
-                        }
-                        self?.updateSecurityStatusIcon()
 
                         print("WebSocket connected")
                     }
