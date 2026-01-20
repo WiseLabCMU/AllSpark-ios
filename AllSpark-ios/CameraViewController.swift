@@ -29,6 +29,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
     private var videoFormat: AVFileType = .mp4 // Default format
+    private var recordingDurationMs: Int = 30000 // Default 30 seconds in milliseconds
 
     // WebSocket Connection
     private var webSocketTask: URLSessionWebSocketTask?
@@ -119,7 +120,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             recordButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
             recordButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             recordButton.widthAnchor.constraint(equalToConstant: 80),
-            recordButton.heightAnchor.constraint(equalToConstant: 50)
+            recordButton.heightAnchor.constraint(equalToConstant: 80)
         ])
     }
 
@@ -805,8 +806,17 @@ extension CameraViewController {
                             if let command = json["command"] as? String {
                                 switch command {
                                 case "record":
+                                    // Parse optional duration parameter (in milliseconds), default to 30 seconds
+                                    var duration = 30000 // 30 seconds default
+                                    if let durationValue = json["duration"] as? Int {
+                                        duration = durationValue
+                                    }
+                                    self?.recordingDurationMs = duration
+
                                     let commandMessage = json["message"] as? String ?? "Record command received from server"
-                                    let alert = UIAlertController(title: "Record Command", message: commandMessage, preferredStyle: .alert)
+                                    let durationSeconds = Double(duration) / 1000.0
+                                    let messageWithDuration = "\(commandMessage)\n\nDuration: \(durationSeconds)s (\(duration)ms)"
+                                    let alert = UIAlertController(title: "Record Command", message: messageWithDuration, preferredStyle: .alert)
                                     alert.addAction(UIAlertAction(title: "OK", style: .default))
                                     self?.present(alert, animated: true)
                                 default:
