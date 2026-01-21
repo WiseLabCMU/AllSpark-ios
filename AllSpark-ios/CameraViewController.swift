@@ -30,6 +30,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var videoURL: URL?
     private var videoFormat: AVFileType = .mp4 // Default format
     private var recordingDurationMs: Int = 30000 // Default 30 seconds in milliseconds
+    private var autoStopTimer: Timer?
+    private var shouldUploadAfterRecording = false
 
     // WebSocket Connection
     private var webSocketTask: URLSessionWebSocketTask?
@@ -395,10 +397,12 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
     }
 
-    private func stopRecording() {
+    private func stopRecording(autoUpload: Bool = false, completion: (() -> Void)? = nil) {
         guard isRecording else { return }
 
         isRecording = false
+        autoStopTimer?.invalidate()
+        autoStopTimer = nil
 
         recordingTimer?.invalidate()
         recordingTimer = nil
@@ -410,7 +414,10 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
         assetWriterInput?.markAsFinished()
         assetWriter?.finishWriting { [weak self] in
-            guard let self = self, let url = self.videoURL else { return }
+            guard let self = self, let url = self.videoURL else {
+                completion?()
+                return
+            }
             print("Video saved to: \(url.path)")
 
             let fileExists = FileManager.default.fileExists(atPath: url.path)
@@ -424,15 +431,24 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             }
 
             DispatchQueue.main.async {
-                if fileExists {
+                // Only show alert if this is a user-initiated stop (not auto-upload)
+                if !autoUpload && fileExists {
                     let alert = UIAlertController(title: "Saved", message: "Video saved to \(url.lastPathComponent)", preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: "OK", style: .default))
                     self.present(alert, animated: true)
-                } else {
+                } else if !autoUpload && !fileExists {
                     let alert = UIAlertController(title: "Error", message: "Failed to save video: File at \(url.lastPathComponent) not found.", preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: "OK", style: .default))
                     self.present(alert, animated: true)
                 }
+
+                // If autoUpload is enabled and file exists, trigger upload
+                if autoUpload && fileExists {
+                    print("Auto-uploading recorded video: \(url.lastPathComponent)")
+                    self.uploadVideo(at: url)
+                }
+
+                completion?()
             }
 
             self.assetWriter = nil
@@ -802,6 +818,9 @@ extension CameraViewController {
                         if let data = text.data(using: .utf8),
                            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
 
+                            // Log incoming message payload
+                            print("Incoming message payload: \(json)")
+
                             // Handle command messages
                             if let command = json["command"] as? String {
                                 switch command {
@@ -813,12 +832,24 @@ extension CameraViewController {
                                     }
                                     self?.recordingDurationMs = duration
 
-                                    let commandMessage = json["message"] as? String ?? "Record command received from server"
+                                    // Parse optional autoUpload flag, default to false
+                                    let autoUpload = (json["autoUpload"] as? NSNumber)?.boolValue ?? false
+
                                     let durationSeconds = Double(duration) / 1000.0
-                                    let messageWithDuration = "\(commandMessage)\n\nDuration: \(durationSeconds)s (\(duration)ms)"
-                                    let alert = UIAlertController(title: "Record Command", message: messageWithDuration, preferredStyle: .alert)
-                                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                                    self?.present(alert, animated: true)
+
+                                    DispatchQueue.main.async {
+                                        // Start recording
+                                        self?.startRecording()
+
+                                        // Set auto-stop timer to stop recording and optionally upload after the specified duration
+                                        self?.autoStopTimer?.invalidate()
+                                        self?.autoStopTimer = Timer.scheduledTimer(withTimeInterval: durationSeconds, repeats: false) { [weak self] _ in
+                                            print("Auto-stopping recording after \(durationSeconds)s")
+                                            self?.stopRecording(autoUpload: autoUpload) {
+                                                print("Recording and upload workflow completed")
+                                            }
+                                        }
+                                    }
                                 default:
                                     print("Unknown command: \(command)")
                                 }
