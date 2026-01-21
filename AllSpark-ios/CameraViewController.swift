@@ -8,6 +8,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     // Camera session
     private var captureSession: AVCaptureSession!
     private var videoOutput: AVCaptureVideoDataOutput!
+    private var audioOutput: AVCaptureAudioDataOutput!
     private var currentCameraPosition: AVCaptureDevice.Position = .front
 
     // Orientation management
@@ -24,6 +25,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     // Video Recording
     private var assetWriter: AVAssetWriter?
     private var assetWriterInput: AVAssetWriterInput?
+    private var audioWriterInput: AVAssetWriterInput?
     private var adapter: AVAssetWriterInputPixelBufferAdaptor?
     private var isRecording = false
     private var sessionAtSourceTime: CMTime?
@@ -400,6 +402,23 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
                 adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
 
+                // Setup audio writer input
+                let audioOutputSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVNumberOfChannelsKey: 1,
+                    AVSampleRateKey: 44100.0,
+                    AVEncoderBitRateKey: 128000
+                ]
+
+                audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
+                audioWriterInput?.expectsMediaDataInRealTime = true
+
+                if let audioInput = audioWriterInput, assetWriter!.canAdd(audioInput) {
+                    assetWriter!.add(audioInput)
+                } else {
+                    print("Failed to add audio input to asset writer")
+                }
+
                 assetWriter!.startWriting()
                 // assetWriter!.startSession(atSourceTime: .zero) // REMOVED: Will start session on first frame
 
@@ -418,7 +437,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                     }
                 }
             } else {
-                print("Failed to add input to asset writer")
+                print("Failed to add video input to asset writer")
             }
         } catch {
             print("Failed to setup asset writer: \(error)")
@@ -441,6 +460,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
 
         assetWriterInput?.markAsFinished()
+        audioWriterInput?.markAsFinished()
         assetWriter?.finishWriting { [weak self] in
             guard let self = self, let url = self.videoURL else {
                 completion?()
@@ -481,6 +501,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
             self.assetWriter = nil
             self.assetWriterInput = nil
+            self.audioWriterInput = nil
             self.adapter = nil
         }
     }
@@ -511,9 +532,42 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             captureSession.addOutput(videoOutput)
         }
 
+        // Request microphone access and setup audio
+        AVAudioApplication.requestRecordPermission { [weak self] granted in
+            if granted {
+                DispatchQueue.main.async {
+                    self?.setupAudioInput()
+                }
+            } else {
+                print("Microphone permission denied")
+            }
+        }
 
         // Set initial video orientation
         updateVideoOrientation()
+    }
+
+    private func setupAudioInput() {
+        guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
+            print("Failed to get audio device")
+            return
+        }
+
+        guard let audioInput = try? AVCaptureDeviceInput(device: audioDevice) else {
+            print("Failed to create audio input")
+            return
+        }
+
+        if captureSession.canAddInput(audioInput) {
+            captureSession.addInput(audioInput)
+        }
+
+        audioOutput = AVCaptureAudioDataOutput()
+        audioOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "audioQueue"))
+
+        if captureSession.canAddOutput(audioOutput) {
+            captureSession.addOutput(audioOutput)
+        }
     }
 
     private func updateVideoOrientation() {
@@ -604,6 +658,21 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
 
         return outputImage
+    }
+
+    private func recordAudioFrame(_ sampleBuffer: CMSampleBuffer) {
+        guard isRecording, let audioInput = audioWriterInput, audioInput.isReadyForMoreMediaData else { return }
+
+        if sessionAtSourceTime == nil {
+            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            sessionAtSourceTime = timestamp
+            assetWriter?.startSession(atSourceTime: timestamp)
+        }
+
+        let success = audioInput.append(sampleBuffer)
+        if !success {
+            print("Failed to append audio buffer. Writer status: \(String(describing: assetWriter?.status.rawValue)) Error: \(String(describing: assetWriter?.error))")
+        }
     }
 
     private func recordVideoFrame(_ image: CIImage, timestamp: CMTime) {
@@ -972,9 +1041,15 @@ extension CameraViewController {
     }
 }
 
-extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
+extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Handle audio output
+        if output == audioOutput {
+            recordAudioFrame(sampleBuffer)
+            return
+        }
 
+        // Handle video output
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
         }
