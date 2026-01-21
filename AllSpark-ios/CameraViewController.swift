@@ -1056,9 +1056,39 @@ extension CameraViewController {
                         self?.connectionAttemptTimer = nil
                         self?.isAttemptingConnection = false
                         self?.updateConnectionStatusIcon()
+                    } else if self?.isConnected == true {
+                        // Server was connected but became unavailable - mark as disconnected
+                        print("Server disconnected unexpectedly")
+                        self?.handleServerDisconnection()
                     }
                 }
             }
+        }
+    }
+
+    private func handleServerDisconnection() {
+        isConnected = false
+        isAttemptingConnection = false
+        connectionAttemptTimer?.invalidate()
+        connectionAttemptTimer = nil
+        webSocketTask = nil
+
+        print("Updating UI to reflect server disconnection")
+        updateConnectionStatusIcon()
+
+        // Optionally show a notification to the user
+        let alert = UIAlertController(title: "Server Disconnected", message: "The connection to the server was lost. Please check your network and try reconnecting.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Reconnect", style: .default) { [weak self] _ in
+            self?.setupWebSocketConnection()
+        })
+        alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
+        self.present(alert, animated: true)
+
+        // Attempt automatic reconnection after a delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            guard let self = self, !self.isConnected && !self.isAttemptingConnection else { return }
+            print("Attempting automatic reconnection after server disconnection...")
+            self.setupWebSocketConnection()
         }
     }
 }
