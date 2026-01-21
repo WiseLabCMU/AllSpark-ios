@@ -371,7 +371,11 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         let fileExtension = formatString == "mov" ? "mov" : "mp4"
         let fileType: AVFileType = formatString == "mov" ? .mov : .mp4
 
-        let videoName = "recording_\(Date().timeIntervalSince1970).\(fileExtension)"
+        // Get device name for filename
+        let deviceName = UserDefaults.standard.string(forKey: "deviceName") ?? UIDevice.current.name
+        let deviceNameForFilename = formatDeviceNameForFilename(deviceName)
+        let timestamp = Date().timeIntervalSince1970
+        let videoName = "recording_\(deviceNameForFilename)_\(timestamp).\(fileExtension)"
         videoURL = documentsPath.appendingPathComponent(videoName)
 
         guard let videoURL = videoURL else { return }
@@ -707,16 +711,42 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
     }
 
+    // MARK: - Helper Methods
+
+    private func formatDeviceNameForFilename(_ name: String) -> String {
+        // Remove non-ASCII characters
+        let ascii = name.filter { $0.isASCII }
+
+        // Split on non-alphanumeric characters and filter empty components
+        let components = ascii.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+
+        // Build title-case: capitalize first letter of each word
+        guard !components.isEmpty else { return "Device" }
+
+        let result = components.map { word in
+            word.prefix(1).uppercased() + word.dropFirst().lowercased()
+        }.joined()
+
+        return result.isEmpty ? "Device" : result
+    }
+
     // MARK: - WebSocket Methods
 
     private func getClientDisplayName() -> String {
         let deviceName = UIDevice.current.name
+        let customDeviceName = UserDefaults.standard.string(forKey: "deviceName") ?? deviceName
         let customName = UserDefaults.standard.string(forKey: "clientDisplayName")
 
+        print("UIDevice.current.name: \(UIDevice.current.name)")
+        print("Device name: \(deviceName)")
+        print("Custom device name from settings: \(customDeviceName)")
+
         if let customName = customName, !customName.isEmpty {
-            return "\(customName) (\(deviceName))"
+            print("Custom name: \(customName)")
+            return "\(customName) (\(customDeviceName))"
         } else {
-            return deviceName
+            return customDeviceName
         }
     }
 

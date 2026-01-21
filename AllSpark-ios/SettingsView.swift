@@ -4,7 +4,16 @@ struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
     @AppStorage("videoFormat") private var videoFormat: String = "mp4"
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
+    @AppStorage("deviceName") private var deviceName: String = ""
     @State private var displayText: String = "Ready."
+
+    init() {
+        // Set default deviceName from UIDevice if not already set
+        let defaultName = UIDevice.current.name
+        if UserDefaults.standard.string(forKey: "deviceName") == nil {
+            UserDefaults.standard.set(defaultName, forKey: "deviceName")
+        }
+    }
 
     var body: some View {
         VStack(alignment: .center) {
@@ -13,6 +22,18 @@ struct SettingsView: View {
                 .padding(.top, 20)
 
             Spacer()
+
+            Text("Device Name")
+                .font(.headline)
+                .padding(.top, 10)
+
+            TextField("Device Name", text: $deviceName)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(maxWidth: 300)
+                .multilineTextAlignment(.center)
+                .padding()
+                .autocapitalization(.words)
+                .textInputAutocapitalization(.words)
 
             Text("Video Format")
                 .font(.headline)
