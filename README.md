@@ -10,7 +10,7 @@ AllSpark system mobile app for iOS. This app provides real-time video capture, r
 - **Video Format Selection**: Choose between MP4 (default) or MOV format for recordings
 - **Video Upload**: Upload recorded or selected videos to a remote server via WebSocket
 - **Network Configuration**: Configurable server host for flexible deployment
-- **Connection Testing**: Built-in ping and HTTP health check utilities
+- **Connection Testing**: Built-in WebSocket and HTTP health check utilities
 
 ## Architecture
 
@@ -105,7 +105,35 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 
 ---
 
-#### Command Message - Server Instructions
+#### Command Message - Record with Duration and Auto-Upload
+
+**Format:**
+```json
+{
+  "command": "record",
+  "message": "Optional additional context or instructions",
+  "duration": 5000,
+  "autoUpload": true
+}
+```
+
+**Parameters:**
+- `command` (required): `"record"` - Server requests client to record
+- `message` (optional): Additional context to display to user
+- `duration` (optional): Recording duration in milliseconds (default: 30000 = 30 seconds)
+- `autoUpload` (optional): Whether to automatically upload after recording stops (default: false)
+
+**App Behavior**:
+- Automatically starts video recording
+- Records for the specified duration
+- Displays alert with duration and auto-upload status
+- When duration expires, stops recording
+- If `autoUpload` is true, automatically uploads the recorded file to server
+- If `autoUpload` is false, saves the file locally without uploading
+
+---
+
+#### Command Message - Server Instructions (Generic)
 
 **Format:**
 ```json
@@ -116,7 +144,7 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 ```
 
 **Supported Commands:**
-- `"record"` - Server requests the client to start/stop recording
+- `"record"` - Server requests the client to start recording with optional duration and auto-upload
   - Additional message context can be included
   - App displays command notification to user
 
@@ -144,15 +172,28 @@ Located in **SettingsView.swift**, allows users to:
    - Selection applies to all future recordings
    - Upload metadata includes correct MIME type based on format
 
-3. **Ping Server**
-   - Single ICMP ping to test network connectivity
-   - Displays round-trip time in milliseconds
-   - Shows response byte count
+3. **Test WebSocket Connection**
+   - Initiates a test WebSocket connection to verify server reachability
+   - Displays connection status (success/failure)
+   - Shows connection protocol (ws:// or wss://) being used
+   - Useful for diagnosing network or certificate issues
 
 4. **Test HTTP Connection**
    - Calls `/api/health` endpoint
    - Verifies server status and uptime
    - Displays health check response
+   - Shows connection protocol (http:// or https://) being used
+
+## Connection Status Indicator
+
+The **Camera** tab displays a WiFi icon in the top-right corner that indicates connection status:
+
+- **Red WiFi with slash** - Disconnected from server
+- **Orange WiFi** - Attempting to connect
+- **Green WiFi** - Connected to server
+- **Green WiFi + Green Lock** - Connected via secure WSS protocol
+
+The lock icon overlay appears automatically when using a secure WebSocket (WSS) connection, indicating encrypted communication with the server.
 
 ## HTTP Endpoints Used
 
@@ -168,16 +209,40 @@ iOS App                           Server
    |                                |
    |-- Connect WebSocket ---------> |
    |                                |
-   |-- Send Metadata (JSON) ------> |
+   |<-- Send Metadata (JSON) ------ | (if uploading)
    |                                |
-   |-- Send Video Data (Binary) --> |
+   |<-- Send Video Data (Binary) -- | (if uploading)
    |                                |
-   |<- Status: success/error ------- |
+   |<-- Status: success/error ----- |
    |                                |
-   |<-- Command (if issued) ------- |
+   |<-- Command: record ----------- |
+   |   (with duration & autoUpload) |
    |                                |
-   |-- Acknowledge & Display ----> |
+   |-- Start Recording ----------> |
+   |                                |
+   |-- Record for duration -------> |
+   |                                |
+   |-- Auto-stop & Upload --------> | (if autoUpload=true)
+   |   (metadata & binary)          |
+   |                                |
+   |<-- Status: success/error ----- |
 ```
+
+## Auto-Recording Workflow
+
+When the server sends a `record` command with `duration` and `autoUpload` parameters:
+
+1. **Client receives command** with duration (e.g., 5000ms) and autoUpload flag
+2. **Recording starts immediately** without user interaction
+3. **Alert displayed** showing duration and auto-upload status
+4. **Recording continues** for the specified duration
+5. **Auto-stop triggered** when timer expires
+6. **File saved** to device
+7. **Auto-upload triggered** (if `autoUpload` is true):
+   - Metadata sent to server
+   - Video file streamed to server
+   - Server acknowledges receipt
+8. **Process complete** - Ready for next command
 
 ## Icons
 
