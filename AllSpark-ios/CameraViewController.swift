@@ -640,6 +640,17 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     // MARK: - WebSocket Methods
 
+    private func getClientDisplayName() -> String {
+        let deviceName = UIDevice.current.name
+        let customName = UserDefaults.standard.string(forKey: "clientDisplayName")
+
+        if let customName = customName, !customName.isEmpty {
+            return "\(customName) (\(deviceName))"
+        } else {
+            return deviceName
+        }
+    }
+
     private func setupWebSocketConnection() {
         var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
 
@@ -687,6 +698,25 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         task.resume()
 
         print("Connecting to WebSocket at \(wsURL)")
+
+        // Send client identification message immediately after connection
+        let clientName = getClientDisplayName()
+        let clientInfo: [String: Any] = [
+            "type": "clientInfo",
+            "clientName": clientName
+        ]
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: clientInfo, options: []),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            let message = URLSessionWebSocketTask.Message.string(jsonString)
+            task.send(message) { error in
+                if let error = error {
+                    print("Failed to send client info: \(error)")
+                } else {
+                    print("Client info sent: \(clientName)")
+                }
+            }
+        }
 
         // Start receiving messages - this will detect connection errors and trigger fallback if needed
         receiveWebSocketMessage()

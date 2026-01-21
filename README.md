@@ -178,7 +178,14 @@ Located in **SettingsView.swift**, allows users to:
    - Shows connection protocol (ws:// or wss://) being used
    - Useful for diagnosing network or certificate issues
 
-4. **Test HTTP Connection**
+4. **Set Client Display Name** (optional)
+   - Custom name shown on server's web interface
+   - Example: "Lab Camera 1", "Front Lobby", etc.
+   - If set, displays as "CustomName (DeviceModel)"
+   - If not set, displays just device name
+   - Helps identify which device is which when multiple clients connect
+
+5. **Test HTTP Connection**
    - Calls `/api/health` endpoint
    - Verifies server status and uptime
    - Displays health check response
