@@ -50,6 +50,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
     private var connectionStatusIcon: UIButton!
+    private var connectionSecureIcon: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -213,6 +214,27 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             connectionStatusIcon.heightAnchor.constraint(equalToConstant: 40)
         ])
 
+        // Setup lock icon overlay for secure connection indicator
+        connectionSecureIcon = UIButton(type: .system)
+        connectionSecureIcon.translatesAutoresizingMaskIntoConstraints = false
+        connectionSecureIcon.tintColor = .systemGreen
+        connectionSecureIcon.isUserInteractionEnabled = false // Disable interaction, just display
+        connectionSecureIcon.isHidden = true // Initially hidden
+
+        if let lockImage = UIImage(systemName: "lock.fill") {
+            let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold, scale: .default)
+            connectionSecureIcon.setImage(lockImage.withConfiguration(config), for: .normal)
+        }
+
+        view.addSubview(connectionSecureIcon)
+
+        NSLayoutConstraint.activate([
+            connectionSecureIcon.bottomAnchor.constraint(equalTo: connectionStatusIcon.bottomAnchor, constant: 2),
+            connectionSecureIcon.trailingAnchor.constraint(equalTo: connectionStatusIcon.trailingAnchor, constant: 2),
+            connectionSecureIcon.widthAnchor.constraint(equalToConstant: 20),
+            connectionSecureIcon.heightAnchor.constraint(equalToConstant: 20)
+        ])
+
         updateConnectionStatusIcon()
     }
 
@@ -226,18 +248,24 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                     self?.connectionStatusIcon.setImage(image, for: .normal)
                     self?.connectionStatusIcon.tintColor = .systemGreen
                 }
+                // Show lock icon if using secure protocol
+                self?.connectionSecureIcon.isHidden = !(self?.isSecureProtocol ?? false)
             } else if self?.isAttemptingConnection ?? false {
                 // Attempting connection - amber/orange
                 if let image = UIImage(systemName: "wifi") {
                     self?.connectionStatusIcon.setImage(image, for: .normal)
                     self?.connectionStatusIcon.tintColor = .systemOrange
                 }
+                // Hide lock icon while attempting
+                self?.connectionSecureIcon.isHidden = true
             } else {
                 // Disconnected - red
                 if let image = UIImage(systemName: "wifi.slash") {
                     self?.connectionStatusIcon.setImage(image, for: .normal)
                     self?.connectionStatusIcon.tintColor = .systemRed
                 }
+                // Hide lock icon when disconnected
+                self?.connectionSecureIcon.isHidden = true
             }
         }
     }
