@@ -808,16 +808,38 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         if let jsonData = try? JSONSerialization.data(withJSONObject: clientInfo, options: []),
            let jsonString = String(data: jsonData, encoding: .utf8) {
             let message = URLSessionWebSocketTask.Message.string(jsonString)
-            task.send(message) { error in
+            task.send(message) { [weak self] error in
                 if let error = error {
                     print("Failed to send client info: \(error)")
+                    DispatchQueue.main.async {
+                        // Connection failed, mark as not attempting and try fallback if WSS
+                        if self?.isSecureProtocol == true {
+                            print("Client info send failed for WSS, attempting WS fallback...")
+                            self?.connectionAttemptTimer?.invalidate()
+                            self?.connectionAttemptTimer = nil
+                            self?.attemptWsFallback()
+                        } else {
+                            print("Client info send failed for WS")
+                            self?.isAttemptingConnection = false
+                            self?.updateConnectionStatusIcon()
+                        }
+                    }
                 } else {
                     print("Client info sent: \(clientName)")
+                    DispatchQueue.main.async {
+                        // Message sent successfully, mark as connected
+                        self?.isConnected = true
+                        self?.isAttemptingConnection = false
+                        self?.connectionAttemptTimer?.invalidate()
+                        self?.connectionAttemptTimer = nil
+                        self?.updateConnectionStatusIcon()
+                        print("WebSocket connection established (client info sent successfully)")
+                    }
                 }
             }
         }
 
-        // Start receiving messages - this will detect connection errors and trigger fallback if needed
+        // Start receiving messages for incoming commands
         receiveWebSocketMessage()
     }
 
@@ -951,23 +973,10 @@ extension CameraViewController {
     private func receiveWebSocketMessage() {
         guard let webSocketTask = webSocketTask else { return }
 
-        // Set a flag to track if this is the first receive attempt for this connection
-        let isFirstReceive = !isConnected && isAttemptingConnection
-
         webSocketTask.receive { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let message):
-                    // Mark as connected on first successful receive (connection is established)
-                    if self?.isConnected == false && self?.isAttemptingConnection == true {
-                        self?.isConnected = true
-                        self?.isAttemptingConnection = false
-                        self?.connectionAttemptTimer?.invalidate()
-                        self?.connectionAttemptTimer = nil
-                        self?.updateConnectionStatusIcon()
-
-                        print("WebSocket connection established")
-                    }
 
                     switch message {
                     case .string(let text):
@@ -1047,23 +1056,6 @@ extension CameraViewController {
                         self?.connectionAttemptTimer = nil
                         self?.isAttemptingConnection = false
                         self?.updateConnectionStatusIcon()
-                    }
-                }
-            }
-        }
-
-        // On first receive, set a short timeout to mark connection as established if no early error
-        if isFirstReceive {
-            connectionAttemptTimer?.invalidate()
-            connectionAttemptTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                // If we still haven't connected after 0.5s but no error occurred, mark as connected
-                if self?.isConnected == false && self?.isAttemptingConnection == true {
-                    DispatchQueue.main.async {
-                        self?.isConnected = true
-                        self?.isAttemptingConnection = false
-                        self?.connectionAttemptTimer = nil
-                        self?.updateConnectionStatusIcon()
-                        print("WebSocket connection established (timeout)")
                     }
                 }
             }
