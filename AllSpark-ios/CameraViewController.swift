@@ -72,21 +72,15 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.captureSession.startRunning()
-        }
-
-        // Reconnect WebSocket if not connected
-        if !isConnected && !isAttemptingConnection {
-            setupWebSocketConnection()
-        }
+        // Check and request permissions each time the view appears
+        checkAndRequestPermissions()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
 
-        if captureSession.isRunning {
-            captureSession.stopRunning()
+        if let session = captureSession, session.isRunning {
+            session.stopRunning()
         }
 
         // Close WebSocket connection
@@ -515,44 +509,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func setupCamera() {
-        captureSession = AVCaptureSession()
-        captureSession.sessionPreset = .high
-
-        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
-            print("Failed to get camera device")
-            return
-        }
-
-        guard let videoInput = try? AVCaptureDeviceInput(device: videoCaptureDevice) else {
-            print("Failed to create video input")
-            return
-        }
-
-        if captureSession.canAddInput(videoInput) {
-            captureSession.addInput(videoInput)
-        }
-
-        videoOutput = AVCaptureVideoDataOutput()
-        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
-        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-
-        if captureSession.canAddOutput(videoOutput) {
-            captureSession.addOutput(videoOutput)
-        }
-
-        // Request microphone access and setup audio
-        AVAudioApplication.requestRecordPermission { [weak self] granted in
-            if granted {
-                DispatchQueue.main.async {
-                    self?.setupAudioInput()
-                }
-            } else {
-                print("Microphone permission denied")
-            }
-        }
-
-        // Set initial video orientation
-        updateVideoOrientation()
+        // Camera initialization will be handled in checkAndRequestPermissions
+        setupFaceDetection()
     }
 
     private func setupAudioInput() {
@@ -576,6 +534,118 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         if captureSession.canAddOutput(audioOutput) {
             captureSession.addOutput(audioOutput)
         }
+    }
+
+    private func checkAndRequestPermissions() {
+        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+
+        switch cameraStatus {
+        case .authorized:
+            // Camera permission already granted
+            initializeCameraIfNeeded()
+            requestMicrophonePermission()
+        case .denied, .restricted:
+            // Permission was denied or restricted
+            showPermissionDeniedAlert(permissionType: "Camera")
+        case .notDetermined:
+            // Request permission
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.initializeCameraIfNeeded()
+                        self?.requestMicrophonePermission()
+                    } else {
+                        self?.showPermissionDeniedAlert(permissionType: "Camera")
+                    }
+                }
+            }
+        @unknown default:
+            print("Unknown camera permission status")
+        }
+    }
+
+    private func requestMicrophonePermission() {
+        AVAudioApplication.requestRecordPermission { [weak self] granted in
+            if granted {
+                DispatchQueue.main.async {
+                    self?.setupAudioInput()
+                }
+            } else {
+                print("Microphone permission denied")
+                DispatchQueue.main.async {
+                    self?.showPermissionDeniedAlert(permissionType: "Microphone")
+                }
+            }
+        }
+    }
+
+    private func initializeCameraIfNeeded() {
+        guard captureSession == nil else {
+            // Camera already initialized, just start running
+            if !captureSession.isRunning {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.captureSession?.startRunning()
+                }
+            }
+            // Reconnect WebSocket if not connected
+            if !isConnected && !isAttemptingConnection {
+                setupWebSocketConnection()
+            }
+            return
+        }
+
+        captureSession = AVCaptureSession()
+        captureSession.sessionPreset = .high
+
+        // Load saved camera position preference
+        let savedCameraPosition = UserDefaults.standard.string(forKey: "cameraPosition") ?? "front"
+        currentCameraPosition = savedCameraPosition == "back" ? .back : .front
+
+        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
+            print("Failed to get camera device")
+            return
+        }
+
+        guard let videoInput = try? AVCaptureDeviceInput(device: videoCaptureDevice) else {
+            print("Failed to create video input")
+            return
+        }
+
+        if captureSession.canAddInput(videoInput) {
+            captureSession.addInput(videoInput)
+        }
+
+        videoOutput = AVCaptureVideoDataOutput()
+        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
+        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+
+        if captureSession.canAddOutput(videoOutput) {
+            captureSession.addOutput(videoOutput)
+        }
+
+        // Set initial video orientation
+        updateVideoOrientation()
+
+        // Start running
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.captureSession?.startRunning()
+        }
+
+        // Reconnect WebSocket if not connected
+        if !isConnected && !isAttemptingConnection {
+            setupWebSocketConnection()
+        }
+    }
+
+    private func showPermissionDeniedAlert(permissionType: String) {
+        let alert = UIAlertController(title: "\(permissionType) Permission Required", message: "This app needs \(permissionType.lowercased()) access to function properly. Please enable it in Settings.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Go to Settings", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        self.present(alert, animated: true)
     }
 
     private func updateVideoOrientation() {
