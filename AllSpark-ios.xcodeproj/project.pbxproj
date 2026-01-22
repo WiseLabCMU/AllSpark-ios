@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C96C7BA22EC694D800C3C312 /* SwiftyPing in Frameworks */ = {isa = PBXBuildFile; productRef = C96C7BA12EC694D800C3C312 /* SwiftyPing */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +26,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C96C7BA22EC694D800C3C312 /* SwiftyPing in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,7 +61,6 @@
 			);
 			name = "AllSpark-ios";
 			packageProductDependencies = (
-				C96C7BA12EC694D800C3C312 /* SwiftyPing */,
 			);
 			productName = "AllSpark-ios";
 			productReference = C962D6312ECCE8060085D403 /* AllSpark.app */;
@@ -94,7 +91,6 @@
 			mainGroup = C96C7B742EC6873200C3C312;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C96C7BA02EC694D800C3C312 /* XCRemoteSwiftPackageReference "SwiftyPing" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C96C7B742EC6873200C3C312;
@@ -371,22 +367,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		C96C7BA02EC694D800C3C312 /* XCRemoteSwiftPackageReference "SwiftyPing" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/samiyr/SwiftyPing.git";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		C96C7BA12EC694D800C3C312 /* SwiftyPing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C96C7BA02EC694D800C3C312 /* XCRemoteSwiftPackageReference "SwiftyPing" */;
-			productName = SwiftyPing;
-		};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C96C7B752EC6873200C3C312 /* Project object */;
