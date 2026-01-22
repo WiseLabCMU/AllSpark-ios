@@ -374,8 +374,12 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Get device name for filename
         let deviceName = UserDefaults.standard.string(forKey: "deviceName") ?? UIDevice.current.name
         let deviceNameForFilename = formatDeviceNameForFilename(deviceName)
+
+        // Get camera position for filename
+        let cameraPosition = currentCameraPosition == .front ? "front" : "back"
+
         let timestamp = Date().timeIntervalSince1970
-        let videoName = "recording_\(deviceNameForFilename)_\(timestamp).\(fileExtension)"
+        let videoName = "recording_\(deviceNameForFilename)_\(cameraPosition)_\(timestamp).\(fileExtension)"
         videoURL = documentsPath.appendingPathComponent(videoName)
 
         guard let videoURL = videoURL else { return }
