@@ -202,6 +202,18 @@ The **Camera** tab displays a WiFi icon in the top-right corner that indicates c
 
 The lock icon overlay appears automatically when using a secure WebSocket (WSS) connection, indicating encrypted communication with the server.
 
+### Server Disconnection Detection
+
+When a previously established server connection becomes unavailable:
+
+1. **Automatic Detection**: The app detects connection loss when WebSocket receive errors occur after successful connection
+2. **UI Update**: The connection icon immediately changes from green to red
+3. **User Alert**: A modal alert notifies the user that the server was lost with two options:
+   - **Reconnect**: Manually initiate reconnection attempt
+   - **Dismiss**: Close the alert
+4. **Automatic Recovery**: The app automatically attempts to reconnect after 5 seconds, allowing the connection to be restored if the server comes back online
+5. **Continuous Attempts**: Automatic reconnection attempts continue until the connection is restored or the user navigates away from the camera view
+
 ## HTTP Endpoints Used
 
 The app makes HTTP requests to the following endpoints:
@@ -257,7 +269,6 @@ Icons used are sourced internally in iOS from SF Symbols Online from a repositor
 
 ## Known Limitations
 
-- WebSocket connection state is confirmed after 0.5 second delay (not real-time)
-- Face detection runs on main frame processing queue
 - Video recordings are stored in Documents directory
 - Both MP4 and MOV formats require decoder support on the receiving server
+- Face detection performance depends on device capabilities and lighting conditions
