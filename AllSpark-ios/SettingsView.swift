@@ -78,6 +78,13 @@ struct SettingsView: View {
             }
             .padding()
 
+            Button(action: {
+                openAppSettings()
+            }) {
+                Text("App Settings")
+            }
+            .padding()
+
             Spacer()
 
             Text(displayText)
@@ -251,4 +258,13 @@ struct SettingsView: View {
             }
         }
     }
+
+    private func openAppSettings() {
+        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(settingsURL)
+    }
+}
+
+#Preview {
+    SettingsView()
 }
