@@ -5,7 +5,7 @@ struct SettingsView: View {
     @AppStorage("videoFormat") private var videoFormat: String = "mp4"
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
-    @State private var displayText: String = "Ready."
+    @State private var displayText: String = "Ready to test."
 
     init() {
         // Set default deviceName from UIDevice if not already set
@@ -16,83 +16,71 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .center) {
+        VStack(spacing: 0) {
             Text("Client Settings")
                 .font(.largeTitle)
                 .padding(.top, 20)
+                .padding(.bottom, 10)
 
-            Spacer()
+            Form {
+                Section(header: Text("Device")) {
+                    HStack {
+                        Text("Device Name")
+                        Spacer()
+                        TextField("Device Name", text: $deviceName)
+                            .multilineTextAlignment(.trailing)
+                            .autocapitalization(.words)
+                            .textInputAutocapitalization(.words)
+                    }
 
-            Text("Device Name")
-                .font(.headline)
-                .padding(.top, 10)
+                    Picker("Video Format", selection: $videoFormat) {
+                        Text("MP4").tag("mp4")
+                        Text("MOV").tag("mov")
+                    }
+                }
 
-            TextField("Device Name", text: $deviceName)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(maxWidth: 300)
-                .multilineTextAlignment(.center)
-                .padding()
-                .autocapitalization(.words)
-                .textInputAutocapitalization(.words)
+                Section(header: Text("Server")) {
+                    HStack {
+                        Text("Server Host")
+                        Spacer()
+                        TextField("Server Host", text: $serverHost)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                            .textInputAutocapitalization(.never)
+                    }
 
-            Text("Video Format")
-                .font(.headline)
-                .padding(.top, 20)
+                    Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
+                }
 
-            Picker("Video Format", selection: $videoFormat) {
-                Text("MP4").tag("mp4")
-                Text("MOV").tag("mov")
+                Section(header: Text("Actions")) {
+                    Button("Test HTTP Connection") {
+                        testHTTPConnection()
+                    }
+
+                    Button("Test WS Connection") {
+                        testWebSocketConnection()
+                    }
+
+                    Button("App Settings") {
+                        openAppSettings()
+                    }
+                }
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 300)
-            .padding()
 
-            Text("Server Host")
-                .font(.headline)
-                .padding(.top, 10)
+            Divider()
 
-            TextField("Server Host", text: $serverHost)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(maxWidth: 300)
-                .multilineTextAlignment(.center)
-                .padding()
-                .keyboardType(.URL)
-                .autocapitalization(.none)
-                .textInputAutocapitalization(.never)
-
-            Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
-                .frame(maxWidth: 300)
-                .padding()
-
-            Button(action: {
-                testHTTPConnection()
-            }) {
-                Text("Test HTTP Connection")
+            ScrollView {
+                Text(displayText)
+                    .font(.body)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding()
-
-            Button(action: {
-                testWebSocketConnection()
-            }) {
-                Text("Test WS Connection")
-            }
-            .padding()
-
-            Button(action: {
-                openAppSettings()
-            }) {
-                Text("App Settings")
-            }
-            .padding()
-
-            Spacer()
-
-            Text(displayText)
-                .font(.title)
-                .padding()
+            .frame(maxHeight: 200)
+            .background(Color(UIColor.secondarySystemBackground))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.gray.opacity(0.2))
+        .background(Color(UIColor.systemGroupedBackground))
     }
 
     private func testHTTPConnection() {
