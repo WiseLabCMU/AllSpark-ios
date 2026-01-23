@@ -514,25 +514,40 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func setupAudioInput() {
-        guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
-            print("Failed to get audio device")
-            return
+        // Check if audio input already exists
+        let audioInputExists = captureSession.inputs.contains { input in
+            guard let deviceInput = input as? AVCaptureDeviceInput else { return false }
+            return deviceInput.device.hasMediaType(.audio)
         }
 
-        guard let audioInput = try? AVCaptureDeviceInput(device: audioDevice) else {
-            print("Failed to create audio input")
-            return
+        if !audioInputExists {
+            guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
+                print("Failed to get audio device")
+                return
+            }
+
+            guard let audioInput = try? AVCaptureDeviceInput(device: audioDevice) else {
+                print("Failed to create audio input")
+                return
+            }
+
+            if captureSession.canAddInput(audioInput) {
+                captureSession.addInput(audioInput)
+            }
         }
 
-        if captureSession.canAddInput(audioInput) {
-            captureSession.addInput(audioInput)
+        // Check if audio output already exists
+        let audioOutputExists = captureSession.outputs.contains { output in
+            return output is AVCaptureAudioDataOutput
         }
 
-        audioOutput = AVCaptureAudioDataOutput()
-        audioOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "audioQueue"))
+        if !audioOutputExists {
+            audioOutput = AVCaptureAudioDataOutput()
+            audioOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "audioQueue"))
 
-        if captureSession.canAddOutput(audioOutput) {
-            captureSession.addOutput(audioOutput)
+            if captureSession.canAddOutput(audioOutput) {
+                captureSession.addOutput(audioOutput)
+            }
         }
     }
 
