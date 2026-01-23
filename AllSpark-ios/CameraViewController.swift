@@ -1088,11 +1088,24 @@ extension CameraViewController {
                                     self?.recordingDurationMs = duration
 
                                     // Parse optional autoUpload flag, default to false
+                                    // Parse optional autoUpload flag, default to false
                                     let autoUpload = (json["autoUpload"] as? NSNumber)?.boolValue ?? false
 
-                                    let durationSeconds = Double(duration) / 1000.0
+                                    // Parse optional camera parameter
+                                    let requestedCamera = json["camera"] as? String
 
                                     DispatchQueue.main.async {
+                                        // content of durationSeconds
+                                        let durationSeconds = Double(duration) / 1000.0
+
+                                        // Switch camera if needed
+                                        if let cameraType = requestedCamera {
+                                            let targetPosition: AVCaptureDevice.Position = (cameraType.lowercased() == "back") ? .back : .front
+                                            if self?.currentCameraPosition != targetPosition {
+                                                self?.switchCamera()
+                                            }
+                                        }
+
                                         // Start recording
                                         self?.startRecording()
 
