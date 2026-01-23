@@ -54,16 +54,28 @@ struct SettingsView: View {
                 }
 
                 Section(header: Text("Actions")) {
-                    Button("Test HTTP Connection") {
-                        testHTTPConnection()
+                    HStack {
+                        Text("WebSocket Connection")
+                        Spacer()
+                        Button("Test WS") {
+                            testWebSocketConnection()
+                        }
                     }
 
-                    Button("Test WS Connection") {
-                        testWebSocketConnection()
+                    HStack {
+                        Text("HTTP Connection")
+                        Spacer()
+                        Button("Test HTTP") {
+                            testHTTPConnection()
+                        }
                     }
 
-                    Button("App Settings") {
-                        openAppSettings()
+                    HStack {
+                        Text("Permissions: Local Network, Camera, Microphone")
+                        Spacer()
+                        Button("Edit Permissions") {
+                            openAppSettings()
+                        }
                     }
                 }
             }
