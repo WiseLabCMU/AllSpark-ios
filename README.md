@@ -113,7 +113,8 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
   "command": "record",
   "message": "Optional additional context or instructions",
   "duration": 5000,
-  "autoUpload": true
+  "autoUpload": true,
+  "camera": "front"
 }
 ```
 
@@ -122,6 +123,7 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 - `message` (optional): Additional context to display to user
 - `duration` (optional): Recording duration in milliseconds (default: 30000 = 30 seconds)
 - `autoUpload` (optional): Whether to automatically upload after recording stops (default: false)
+- `camera` (optional): Camera to use (`"front"` or `"back"`). If omitted, active camera is used.
 
 **App Behavior**:
 - Automatically starts video recording
@@ -161,35 +163,42 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 
 Located in **SettingsView.swift**, allows users to:
 
-1. **Configure Server Host**
-   - Default: `localhost:8080`
-   - Supports: IP addresses, hostnames, with or without protocol prefix
-   - Automatically converts HTTP/HTTPS to WS/WSS
+1. **Configure Device Name** (optional)
+   - Custom name shown on server's web interface
+   - Useful for identifying specific devices in the test host
+   - Defaults to the iOS device name (e.g., "iPhone")
 
-2. **Select Video Format**
+1. **Select Video Format**
    - Default: `MP4`
    - Options: `MP4` or `MOV`
    - Selection applies to all future recordings
    - Upload metadata includes correct MIME type based on format
 
-3. **Test WebSocket Connection**
+1. **Configure Server Host**
+   - Default: `localhost:8080`
+   - Supports: IP addresses, hostnames, with or without protocol prefix
+
+1. **Set SSL Verfification**
+   - Default: `true`
+   - If testing self-signed certificates, set to `false`
+
+1. **Test WebSocket Connection**
    - Initiates a test WebSocket connection to verify server reachability
    - Displays connection status (success/failure)
    - Shows connection protocol (ws:// or wss://) being used
    - Useful for diagnosing network or certificate issues
 
-4. **Set Client Display Name** (optional)
-   - Custom name shown on server's web interface
-   - Example: "Lab Camera 1", "Front Lobby", etc.
-   - If set, displays as "CustomName (DeviceModel)"
-   - If not set, displays just device name
-   - Helps identify which device is which when multiple clients connect
-
-5. **Test HTTP Connection**
+1. **Test HTTP Connection**
    - Calls `/api/health` endpoint
    - Verifies server status and uptime
    - Displays health check response
    - Shows connection protocol (http:// or https://) being used
+
+1. **Edit Permissions**
+    - Opens Allspark's iOS app permissions settings
+    - *Local Network*: May be required for WebSocket/HTTP connections depending on server configuration
+    - *Microphone*: Required for audio recording
+    - *Camera*: Required for video recording
 
 ## Connection Status Indicator
 
