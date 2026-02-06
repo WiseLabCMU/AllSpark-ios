@@ -41,7 +41,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     // Display layer
     private var imageView: UIImageView!
-    private var recordButton: UIButton!
+    // private var recordButton: UIButton! // Removed
     private var switchCameraButton: UIButton!
     private var uploadButton: UIButton!
     private var timerLabel: UILabel!
@@ -54,14 +54,13 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         super.viewDidLoad()
 
         setupImageView()
-        setupRecordButton()
+        // setupRecordButton() // Removed
 
         setupSwitchCameraButton()
         setupUploadButton()
         setupTimerLabel()
         setupConnectionStatusIcon()
         setupCamera()
-        setupFaceDetection()
         setupFaceDetection()
 
         // ConnectionManager is a singleton, so we just ensure it's connected and observe it
@@ -74,11 +73,20 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         super.viewDidAppear(animated)
 
         // Check and request permissions each time the view appears
+        // Permissions flow handles initializing camera, and we should start recording if permitted.
         checkAndRequestPermissions()
+
+        // Note: startRecording() will be called from checkAndRequestPermissions completion chain
+        // OR we can try to start here if we know we are authorized.
+        if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+             startRecording()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+
+        stopRecording()
 
         if let session = captureSession, session.isRunning {
             session.stopRunning()
@@ -95,34 +103,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         view.addSubview(imageView)
     }
 
-    private func setupRecordButton() {
-        recordButton = UIButton(type: .system)
-        recordButton.translatesAutoresizingMaskIntoConstraints = false
-        if let image = UIImage(systemName: "circle.circle.fill") {
-            // Using a large circle fill to mimic a record button
-            recordButton.setImage(image, for: .normal)
-            recordButton.tintColor = .red
-            recordButton.backgroundColor = .clear // Remove background if using image
-            // Scale up the image
-            let config = UIImage.SymbolConfiguration(pointSize: 60, weight: .regular, scale: .default)
-            recordButton.setPreferredSymbolConfiguration(config, forImageIn: .normal)
-        } else {
-            recordButton.setTitle("Record", for: .normal)
-            recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
-            recordButton.setTitleColor(.white, for: .normal)
-            recordButton.layer.cornerRadius = 25
-        }
-        recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
+    // recordButton setup removed
 
-        view.addSubview(recordButton)
-
-        NSLayoutConstraint.activate([
-            recordButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            recordButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            recordButton.widthAnchor.constraint(equalToConstant: 80),
-            recordButton.heightAnchor.constraint(equalToConstant: 80)
-        ])
-    }
 
     private func setupSwitchCameraButton() {
         switchCameraButton = UIButton(type: .system)
@@ -172,25 +154,60 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         ])
     }
 
+    private var recordingIndicatorContainer: UIView!
+
     private func setupTimerLabel() {
+        // Container for background
+        recordingIndicatorContainer = UIView()
+        recordingIndicatorContainer.translatesAutoresizingMaskIntoConstraints = false
+        recordingIndicatorContainer.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        recordingIndicatorContainer.layer.cornerRadius = 8
+        recordingIndicatorContainer.clipsToBounds = true
+        recordingIndicatorContainer.isHidden = true // Initially hidden
+        view.addSubview(recordingIndicatorContainer)
+
+        // Stack View
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.spacing = 8
+        stackView.alignment = .center
+        stackView.distribution = .fill
+        recordingIndicatorContainer.addSubview(stackView)
+
+        // Recording Icon (Red Circle)
+        let iconView = UIImageView()
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        if let image = UIImage(systemName: "circle.fill") {
+            iconView.image = image
+        }
+        iconView.tintColor = .red
+        iconView.contentMode = .scaleAspectFit
+        stackView.addArrangedSubview(iconView)
+
+        // Timer Label
         timerLabel = UILabel()
         timerLabel.translatesAutoresizingMaskIntoConstraints = false
         timerLabel.text = "00:00"
-        timerLabel.textColor = .white
-        timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .semibold)
-        timerLabel.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        timerLabel.layer.cornerRadius = 8
-        timerLabel.clipsToBounds = true
-        timerLabel.textAlignment = .center
-        timerLabel.isHidden = true // Initially hidden
-
-        view.addSubview(timerLabel)
+        timerLabel.textColor = .red // User requested red
+        timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold)
+        stackView.addArrangedSubview(timerLabel)
 
         NSLayoutConstraint.activate([
-            timerLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            timerLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            timerLabel.widthAnchor.constraint(equalToConstant: 80),
-            timerLabel.heightAnchor.constraint(equalToConstant: 30)
+            recordingIndicatorContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            recordingIndicatorContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            // Height enough for padding
+            recordingIndicatorContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            // StackView constraints inside container with padding
+            stackView.leadingAnchor.constraint(equalTo: recordingIndicatorContainer.leadingAnchor, constant: 10),
+            stackView.trailingAnchor.constraint(equalTo: recordingIndicatorContainer.trailingAnchor, constant: -10),
+            stackView.topAnchor.constraint(equalTo: recordingIndicatorContainer.topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: recordingIndicatorContainer.bottomAnchor),
+
+            // Icon size
+            iconView.widthAnchor.constraint(equalToConstant: 12),
+            iconView.heightAnchor.constraint(equalToConstant: 12)
         ])
     }
 
@@ -297,54 +314,69 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Handle command messages
         if let command = json["command"] as? String {
             switch command {
-            case "record":
-                // Parse optional duration parameter (in milliseconds), default to 30 seconds
-                var duration = 30000 // 30 seconds default
-                if let durationValue = json["duration"] as? Int {
-                    duration = durationValue
+            case "uploadTimeRange":
+                guard let startTime = json["startTime"] as? Double,
+                      let endTime = json["endTime"] as? Double else {
+                    print("Invalid uploadTimeRange parameters")
+                    return
                 }
-                self.recordingDurationMs = duration
 
-                // Parse optional autoUpload flag, default to false
-                let autoUpload = (json["autoUpload"] as? NSNumber)?.boolValue ?? false
-
-                // Parse optional camera parameter
-                let requestedCamera = json["camera"] as? String
-
-                DispatchQueue.main.async {
-                    // content of durationSeconds
-                    let durationSeconds = Double(duration) / 1000.0
-
-                    // Switch camera if needed
-                    if let cameraType = requestedCamera {
-                        let targetPosition: AVCaptureDevice.Position = (cameraType.lowercased() == "back") ? .back : .front
-                        if self.currentCameraPosition != targetPosition {
-                            self.switchCamera()
-                        }
-                    }
-
-                    // Start recording
-                    self.startRecording()
-
-                    // Set auto-stop timer to stop recording and optionally upload after the specified duration
-                    self.autoStopTimer?.invalidate()
-                    self.autoStopTimer = Timer.scheduledTimer(withTimeInterval: durationSeconds, repeats: false) { [weak self] _ in
-                        print("Auto-stopping recording after \(durationSeconds)s")
-                        self?.stopRecording(autoUpload: autoUpload) {
-                            print("Recording and upload workflow completed")
-                        }
-                    }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    self.handleUploadTimeRange(startTime: startTime, endTime: endTime)
                 }
+
             default:
                 print("Unknown command: \(command)")
             }
         } else if let status = json["status"] as? String {
             // Handle status messages
             if status == "success" {
-                let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
-                self.present(alert, animated: true)
+                // Optional: show a small toast instead of an alert to avoid interrupting
+                print("Server confirmed upload success")
             }
+        }
+    }
+
+    private func handleUploadTimeRange(startTime: Double, endTime: Double) {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+        do {
+            let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)
+
+            let recordingFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("recording_") && $0.pathExtension == "mp4" }
+
+            print("Found \(recordingFiles.count) recordings. Checking overlap with \(startTime) - \(endTime)")
+
+            for fileURL in recordingFiles {
+                // Parse timestamp from filename: recording_Device_front_1700000000.mp4
+                let parts = fileURL.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
+                if let lastPart = parts.last, let fileTimestamp = Double(lastPart) {
+
+                    // We assume the file duration is approximately the chunk duration
+                    // For better accuracy, we could use AVAsset, but that's heavier.
+                    // Let's rely on the config duration for estimation or just the start time.
+                    // A file 'covers' [timestamp, timestamp + chunkDuration]
+                    // We upload if there is ANY overlap.
+
+                    // Get current chunk duration from config (default 30s)
+                    var chunkDuration = 30.0
+                    if let config = ConnectionManager.shared.clientConfig,
+                       let durationMs = config["videoChunkDurationMs"] as? Int {
+                        chunkDuration = Double(durationMs) / 1000.0
+                    }
+
+                    let fileEndTime = fileTimestamp + chunkDuration
+
+                    // Check intersection
+                    // File Start < Request End AND File End > Request Start
+                    if fileTimestamp < endTime && fileEndTime > startTime {
+                        print("Uploading file matching range: \(fileURL.lastPathComponent)")
+                        uploadVideo(at: fileURL)
+                    }
+                }
+            }
+        } catch {
+            print("Error scanning recordings: \(error)")
         }
     }
 
@@ -414,29 +446,25 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         timerLabel.text = String(format: "%02d:%02d", minutes, seconds)
     }
 
-    @objc private func toggleRecording() {
-        if isRecording {
-            stopRecording()
-            if let image = UIImage(systemName: "stop.circle.fill") {
-                 recordButton.setImage(image, for: .normal)
-                 recordButton.tintColor = .gray
-            } else {
-                recordButton.setTitle("Record", for: .normal)
-                recordButton.backgroundColor = UIColor.red.withAlphaComponent(0.7)
-            }
-        } else {
-            startRecording()
-            if let image = UIImage(systemName: "record.circle") {
-                 recordButton.setImage(image, for: .normal)
-                 recordButton.tintColor = .red
-            } else {
-                recordButton.setTitle("Stop", for: .normal)
-                recordButton.backgroundColor = UIColor.gray.withAlphaComponent(0.7)
-            }
-        }
-    }
+    // toggleRecording removed
 
     private func startRecording() {
+        // Start UI Timer Loop
+        // Note: recordingDuration is reset in startRecordingChunk
+
+        recordingTimer?.invalidate()
+        DispatchQueue.main.async {
+            self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                self.recordingDuration += 1
+                self.updateTimerDisplay()
+            }
+        }
+
+        startRecordingChunk()
+    }
+
+    private func startRecordingChunk() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
         // Load video format preference from UserDefaults
@@ -506,16 +534,28 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                 isRecording = true
                 sessionAtSourceTime = nil
 
-                // Start timer
-                recordingDuration = 0
-                updateTimerDisplay()
-                timerLabel.isHidden = false
-                DispatchQueue.main.async {
-                    self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                        guard let self = self else { return }
-                        self.recordingDuration += 1
-                        self.updateTimerDisplay()
-                    }
+                print("Started recording chunk: \(videoName)")
+
+                // Reset UI Timer for new chunk
+                DispatchQueue.main.async { [weak self] in
+                    self?.recordingDuration = 0
+                    self?.updateTimerDisplay()
+                    self?.recordingIndicatorContainer.isHidden = false
+                }
+
+                // Chunk Timer
+                var chunkMs = 30000 // Default 30s
+                if let config = ConnectionManager.shared.clientConfig,
+                   let ms = config["videoChunkDurationMs"] as? Int {
+                    chunkMs = ms
+                }
+                let chunkSeconds = Double(chunkMs) / 1000.0
+
+                // Schedule next chunk
+                self.autoStopTimer?.invalidate()
+                self.autoStopTimer = Timer.scheduledTimer(withTimeInterval: chunkSeconds, repeats: false) { [weak self] _ in
+                    print("Chunk complete, cycling...")
+                    self?.cycleRecordingChunk()
                 }
             } else {
                 print("Failed to add video input to asset writer")
@@ -525,65 +565,76 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
     }
 
-    private func stopRecording(autoUpload: Bool = false, completion: (() -> Void)? = nil) {
+    private func cycleRecordingChunk() {
         guard isRecording else { return }
 
-        isRecording = false
+        // Stop current
+        stopRecordingChunk { [weak self] in
+            // Start next immediately
+            self?.startRecordingChunk()
+        }
+    }
+
+    // User triggered stop
+    private func stopRecording() {
+        // Cancel the cycling timer
         autoStopTimer?.invalidate()
         autoStopTimer = nil
 
+        isRecording = false // This prevents cycleRecordingChunk from starting a new one
+
+        // Stop UI Timer
         recordingTimer?.invalidate()
         recordingTimer = nil
-        timerLabel.isHidden = true
+        recordingIndicatorContainer.isHidden = true
 
-        if assetWriter?.status == .failed {
-            print("Asset writer status is failed: \(String(describing: assetWriter?.error))")
+        stopRecordingChunk(completion: nil)
+    }
+
+    private func stopRecordingChunk(completion: (() -> Void)? = nil) {
+        // If we are already not recording (e.g. user pressed stop), we might still need to close the writer
+        // but 'isRecording' is the flag for the *session*.
+        // We need to be careful. usage:
+        // cycle: isRecording=true. stopChunk -> startChunk.
+        // user stop: isRecording=false. stopChunk.
+
+        // Note: isRecording is used in recordVideoFrame guards.
+        // If we set isRecording=false in stopRecording, then recordVideoFrame stops sending frames.
+        // Then we call stopRecordingChunk to close the writer.
+
+        guard let writer = assetWriter else {
+            completion?()
+            return
+        }
+
+        // recordingTimer is now managed by stopRecording()
+
+        if writer.status == .failed {
+            print("Asset writer status is failed: \(String(describing: writer.error))")
         }
 
         assetWriterInput?.markAsFinished()
         audioWriterInput?.markAsFinished()
-        assetWriter?.finishWriting { [weak self] in
-            guard let self = self, let url = self.videoURL else {
+
+        // We need to capture the URL locally before nil-ing out
+        let savedURL = videoURL
+
+        writer.finishWriting { [weak self] in
+            guard let self = self else {
                 completion?()
                 return
             }
-            print("Video saved to: \(url.path)")
 
-            let fileExists = FileManager.default.fileExists(atPath: url.path)
-
-            if fileExists {
-                 print("File verified to exist at path: \(url.path)")
-                 let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-                 print("File size: \(attributes?[.size] ?? "unknown") bytes")
-            } else {
-                 print("ERROR: File does not exist at path: \(url.path)")
-            }
-
-            DispatchQueue.main.async {
-                // Only show alert if this is a user-initiated stop (not auto-upload)
-                if !autoUpload && fileExists {
-                    let alert = UIAlertController(title: "Saved", message: "Video saved to \(url.lastPathComponent)", preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self.present(alert, animated: true)
-                } else if !autoUpload && !fileExists {
-                    let alert = UIAlertController(title: "Error", message: "Failed to save video: File at \(url.lastPathComponent) not found.", preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    self.present(alert, animated: true)
-                }
-
-                // If autoUpload is enabled and file exists, trigger upload
-                if autoUpload && fileExists {
-                    print("Auto-uploading recorded video: \(url.lastPathComponent)")
-                    self.uploadVideo(at: url)
-                }
-
-                completion?()
+            if let url = savedURL {
+               print("Chunk saved: \(url.lastPathComponent)")
             }
 
             self.assetWriter = nil
             self.assetWriterInput = nil
             self.audioWriterInput = nil
             self.adapter = nil
+
+            completion?()
         }
     }
 
