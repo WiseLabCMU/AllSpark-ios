@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
+    @ObservedObject private var connectionManager = ConnectionManager.shared
     @AppStorage("videoFormat") private var videoFormat: String = "mp4"
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
@@ -36,6 +37,27 @@ struct SettingsView: View {
                     Picker("Video Format", selection: $videoFormat) {
                         Text("MP4").tag("mp4")
                         Text("MOV").tag("mov")
+                    }
+                }
+
+                Section(header: Text("Background Connection status")) {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        if connectionManager.isConnected {
+                            Text("Connected")
+                                .foregroundColor(.green)
+                            if connectionManager.isSecureProtocol {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.green)
+                            }
+                        } else if connectionManager.isAttemptingConnection {
+                            Text("Connecting...")
+                                .foregroundColor(.orange)
+                        } else {
+                            Text("Disconnected")
+                                .foregroundColor(.red)
+                        }
                     }
                 }
 

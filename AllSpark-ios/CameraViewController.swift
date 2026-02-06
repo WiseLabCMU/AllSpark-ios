@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import Vision
 import CoreImage
+import Combine
 
 class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINavigationControllerDelegate {
 
@@ -36,12 +37,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var shouldUploadAfterRecording = false
 
     // WebSocket Connection
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var webSocketURL: URL?
-    private var isConnected = false
-    private var isSecureProtocol = false
-    private var isAttemptingConnection = false
-    private var connectionAttemptTimer: Timer?
+    private var cancellables = Set<AnyCancellable>()
 
     // Display layer
     private var imageView: UIImageView!
@@ -66,7 +62,12 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         setupConnectionStatusIcon()
         setupCamera()
         setupFaceDetection()
-        setupWebSocketConnection()
+        setupFaceDetection()
+
+        // ConnectionManager is a singleton, so we just ensure it's connected and observe it
+        ConnectionManager.shared.connect()
+        setupConnectionObserver()
+        setupCommandObserver()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -84,7 +85,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         }
 
         // Close WebSocket connection
-        disconnectWebSocket()
+        // WebSocket connection is now managed by ConnectionManager (background), so we don't disconnect here.
     }
 
     private func setupImageView() {
@@ -234,40 +235,118 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         updateConnectionStatusIcon()
     }
 
-
-
     private func updateConnectionStatusIcon() {
         DispatchQueue.main.async { [weak self] in
-            if self?.isConnected ?? false {
+            guard let self = self else { return }
+
+            if ConnectionManager.shared.isConnected {
                 // Connected - green
                 if let image = UIImage(systemName: "wifi") {
-                    self?.connectionStatusIcon.setImage(image, for: .normal)
-                    self?.connectionStatusIcon.tintColor = .systemGreen
+                    self.connectionStatusIcon.setImage(image, for: .normal)
+                    self.connectionStatusIcon.tintColor = .systemGreen
                 }
                 // Show lock icon if using secure protocol
-                self?.connectionSecureIcon.isHidden = !(self?.isSecureProtocol ?? false)
-            } else if self?.isAttemptingConnection ?? false {
+                self.connectionSecureIcon.isHidden = !ConnectionManager.shared.isSecureProtocol
+            } else if ConnectionManager.shared.isAttemptingConnection {
                 // Attempting connection - amber/orange
                 if let image = UIImage(systemName: "wifi") {
-                    self?.connectionStatusIcon.setImage(image, for: .normal)
-                    self?.connectionStatusIcon.tintColor = .systemOrange
+                    self.connectionStatusIcon.setImage(image, for: .normal)
+                    self.connectionStatusIcon.tintColor = .systemOrange
                 }
                 // Hide lock icon while attempting
-                self?.connectionSecureIcon.isHidden = true
+                self.connectionSecureIcon.isHidden = true
             } else {
                 // Disconnected - red
                 if let image = UIImage(systemName: "wifi.slash") {
-                    self?.connectionStatusIcon.setImage(image, for: .normal)
-                    self?.connectionStatusIcon.tintColor = .systemRed
+                    self.connectionStatusIcon.setImage(image, for: .normal)
+                    self.connectionStatusIcon.tintColor = .systemRed
                 }
                 // Hide lock icon when disconnected
-                self?.connectionSecureIcon.isHidden = true
+                self.connectionSecureIcon.isHidden = true
             }
         }
     }
 
+    private func setupConnectionObserver() {
+        // Observe connection state changes
+        ConnectionManager.shared.$isConnected
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateConnectionStatusIcon()
+            }
+            .store(in: &cancellables)
 
+        ConnectionManager.shared.$isAttemptingConnection
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateConnectionStatusIcon()
+            }
+            .store(in: &cancellables)
+    }
 
+    private func setupCommandObserver() {
+        NotificationCenter.default.addObserver(self, selector: #selector(handleRemoteCommand(_:)), name: .didReceiveRemoteCommand, object: nil)
+    }
+
+    @objc private func handleRemoteCommand(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let json = userInfo["payload"] as? [String: Any] else { return }
+
+        print("Incoming message payload: \(json)")
+
+        // Handle command messages
+        if let command = json["command"] as? String {
+            switch command {
+            case "record":
+                // Parse optional duration parameter (in milliseconds), default to 30 seconds
+                var duration = 30000 // 30 seconds default
+                if let durationValue = json["duration"] as? Int {
+                    duration = durationValue
+                }
+                self.recordingDurationMs = duration
+
+                // Parse optional autoUpload flag, default to false
+                let autoUpload = (json["autoUpload"] as? NSNumber)?.boolValue ?? false
+
+                // Parse optional camera parameter
+                let requestedCamera = json["camera"] as? String
+
+                DispatchQueue.main.async {
+                    // content of durationSeconds
+                    let durationSeconds = Double(duration) / 1000.0
+
+                    // Switch camera if needed
+                    if let cameraType = requestedCamera {
+                        let targetPosition: AVCaptureDevice.Position = (cameraType.lowercased() == "back") ? .back : .front
+                        if self.currentCameraPosition != targetPosition {
+                            self.switchCamera()
+                        }
+                    }
+
+                    // Start recording
+                    self.startRecording()
+
+                    // Set auto-stop timer to stop recording and optionally upload after the specified duration
+                    self.autoStopTimer?.invalidate()
+                    self.autoStopTimer = Timer.scheduledTimer(withTimeInterval: durationSeconds, repeats: false) { [weak self] _ in
+                        print("Auto-stopping recording after \(durationSeconds)s")
+                        self?.stopRecording(autoUpload: autoUpload) {
+                            print("Recording and upload workflow completed")
+                        }
+                    }
+                }
+            default:
+                print("Unknown command: \(command)")
+            }
+        } else if let status = json["status"] as? String {
+            // Handle status messages
+            if status == "success" {
+                let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(alert, animated: true)
+            }
+        }
+    }
 
     @objc private func switchCamera() {
         guard !isRecording else { return } // Disable switching while recording
@@ -602,10 +681,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                     self?.captureSession?.startRunning()
                 }
             }
-            // Reconnect WebSocket if not connected
-            if !isConnected && !isAttemptingConnection {
-                setupWebSocketConnection()
-            }
+            // Reconnect WebSocket logic is now handled by ConnectionManager
+
             return
         }
 
@@ -646,10 +723,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             self?.captureSession?.startRunning()
         }
 
-        // Reconnect WebSocket if not connected
-        if !isConnected && !isAttemptingConnection {
-            setupWebSocketConnection()
-        }
+        // Reconnect WebSocket logic is now handled by ConnectionManager
+
     }
 
     private func showPermissionDeniedAlert(permissionType: String) {
@@ -819,164 +894,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
         return result.isEmpty ? "Device" : result
     }
-
-    // MARK: - WebSocket Methods
-
-    private func getClientDisplayName() -> String {
-        let deviceName = UIDevice.current.name
-        let customDeviceName = UserDefaults.standard.string(forKey: "deviceName") ?? deviceName
-        let customName = UserDefaults.standard.string(forKey: "clientDisplayName")
-
-        print("UIDevice.current.name: \(UIDevice.current.name)")
-        print("Device name: \(deviceName)")
-        print("Custom device name from settings: \(customDeviceName)")
-
-        if let customName = customName, !customName.isEmpty {
-            print("Custom name: \(customName)")
-            return "\(customName) (\(customDeviceName))"
-        } else {
-            return customDeviceName
-        }
-    }
-
-    private func setupWebSocketConnection() {
-        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
-
-        // Strip any existing protocol
-        if hostString.lowercased().hasPrefix("http://") {
-            hostString = String(hostString.dropFirst(7))
-        } else if hostString.lowercased().hasPrefix("https://") {
-            hostString = String(hostString.dropFirst(8))
-        } else if hostString.lowercased().hasPrefix("ws://") {
-            hostString = String(hostString.dropFirst(5))
-        } else if hostString.lowercased().hasPrefix("wss://") {
-            hostString = String(hostString.dropFirst(6))
-        }
-
-        guard let wsURLSecure = URL(string: "wss://" + hostString) else {
-            print("Invalid WebSocket URL: \(hostString)")
-            return
-        }
-
-        self.webSocketURL = wsURLSecure
-        connectWebSocket()
-    }
-
-    private func connectWebSocket() {
-        guard let wsURL = webSocketURL else { return }
-        guard !isAttemptingConnection else { return } // Prevent multiple simultaneous attempts
-
-        isAttemptingConnection = true
-        updateConnectionStatusIcon()
-
-        // Set secure protocol flag based on connection URL
-        if wsURL.absoluteString.lowercased().hasPrefix("wss://") {
-            isSecureProtocol = true
-        } else {
-            isSecureProtocol = false
-        }
-
-        let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
-        let config = URLSessionConfiguration.default
-        let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
-        let urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        let task = urlSession.webSocketTask(with: wsURL)
-
-        self.webSocketTask = task
-        task.resume()
-
-        print("Connecting to WebSocket at \(wsURL)")
-
-        // Send client identification message immediately after connection
-        let clientName = getClientDisplayName()
-        let clientInfo: [String: Any] = [
-            "type": "clientInfo",
-            "clientName": clientName
-        ]
-
-        if let jsonData = try? JSONSerialization.data(withJSONObject: clientInfo, options: []),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            let message = URLSessionWebSocketTask.Message.string(jsonString)
-            task.send(message) { [weak self] error in
-                if let error = error {
-                    print("Failed to send client info: \(error)")
-                    DispatchQueue.main.async {
-                        // Connection failed, mark as not attempting and try fallback if WSS
-                        if self?.isSecureProtocol == true {
-                            print("Client info send failed for WSS, attempting WS fallback...")
-                            self?.connectionAttemptTimer?.invalidate()
-                            self?.connectionAttemptTimer = nil
-                            self?.attemptWsFallback()
-                        } else {
-                            print("Client info send failed for WS")
-                            self?.isAttemptingConnection = false
-                            self?.updateConnectionStatusIcon()
-                        }
-                    }
-                } else {
-                    print("Client info sent: \(clientName)")
-                    DispatchQueue.main.async {
-                        // Message sent successfully, mark as connected
-                        self?.isConnected = true
-                        self?.isAttemptingConnection = false
-                        self?.connectionAttemptTimer?.invalidate()
-                        self?.connectionAttemptTimer = nil
-                        self?.updateConnectionStatusIcon()
-                        print("WebSocket connection established (client info sent successfully)")
-                    }
-                }
-            }
-        }
-
-        // Start receiving messages for incoming commands
-        receiveWebSocketMessage()
-    }
-
-    private func attemptWsFallback() {
-        guard let wsURL = webSocketURL else { return }
-        guard isSecureProtocol else { return } // Only fallback if we were trying WSS
-
-        // Convert wss:// to ws://
-        var wsURLString = wsURL.absoluteString
-        wsURLString = wsURLString.replacingOccurrences(of: "wss://", with: "ws://")
-
-        guard let wsURLFallback = URL(string: wsURLString) else {
-            print("Invalid WebSocket fallback URL: \(wsURLString)")
-            return
-        }
-
-        // Disconnect the current failed WSS task
-        if let task = webSocketTask {
-            task.cancel(with: .goingAway, reason: nil)
-        }
-        webSocketTask = nil
-        isAttemptingConnection = false
-
-        // Update the URL to the fallback WS URL
-        webSocketURL = wsURLFallback
-        isSecureProtocol = false
-
-        print("WSS connection failed, attempting WS fallback at \(wsURLFallback)")
-
-        // Now connect using WS
-        connectWebSocket()
-    }
-
-    private func disconnectWebSocket() {
-        if let task = webSocketTask {
-            task.cancel(with: .goingAway, reason: nil)
-        }
-        webSocketTask = nil
-        isConnected = false
-        isAttemptingConnection = false
-        connectionAttemptTimer?.invalidate()
-        connectionAttemptTimer = nil
-        updateConnectionStatusIcon()
-        print("WebSocket disconnected")
-    }
 }
-
-
 
 extension CameraViewController {
     @objc private func promptForUpload() {
@@ -997,200 +915,17 @@ extension CameraViewController {
     }
 
     private func uploadVideo(at fileURL: URL) {
-        guard isConnected, let webSocketTask = webSocketTask else {
-            let alert = UIAlertController(title: "Connection Error", message: "WebSocket not connected. Please try again.", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            self.present(alert, animated: true)
-            return
-        }
-
-        let videoData: Data
-        do {
-            videoData = try Data(contentsOf: fileURL)
-        } catch {
-            print("Failed to load video data: \(error)")
-            return
-        }
-
-        let filename = fileURL.lastPathComponent
-
-        // Determine mimetype based on file extension
-        let fileExtension = (filename as NSString).pathExtension.lowercased()
-        let mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
-
-        // Send video metadata first
-        let metadata: [String: Any] = [
-            "type": "upload",
-            "filename": filename,
-            "filesize": videoData.count,
-            "mimetype": mimetype
-        ]
-
-        if let jsonData = try? JSONSerialization.data(withJSONObject: metadata, options: []),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            let metadataMessage = URLSessionWebSocketTask.Message.string(jsonString)
-            webSocketTask.send(metadataMessage) { [weak self] error in
-                if let error = error {
-                    print("Failed to send metadata: \(error)")
-                    DispatchQueue.main.async {
-                        let alert = UIAlertController(title: "Upload Failed", message: "Failed to send metadata: \(error.localizedDescription)", preferredStyle: .alert)
-                        alert.addAction(UIAlertAction(title: "OK", style: .default))
-                        self?.present(alert, animated: true)
-                    }
-                    return
-                }
-
-                // Send video data as binary message
-                let dataMessage = URLSessionWebSocketTask.Message.data(videoData)
-                webSocketTask.send(dataMessage) { [weak self] error in
-                    DispatchQueue.main.async {
-                        if let error = error {
-                            let alert = UIAlertController(title: "Upload Failed", message: "Failed to send video: \(error.localizedDescription)", preferredStyle: .alert)
-                            alert.addAction(UIAlertAction(title: "OK", style: .default))
-                            self?.present(alert, animated: true)
-                            return
-                        }
-
-                        // Listen for server response
-                        self?.receiveWebSocketMessage()
-                    }
-                }
-            }
-        }
-    }
-
-    private func receiveWebSocketMessage() {
-        guard let webSocketTask = webSocketTask else { return }
-
-        webSocketTask.receive { [weak self] result in
+        ConnectionManager.shared.uploadVideo(at: fileURL) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
-                case .success(let message):
-
-                    switch message {
-                    case .string(let text):
-                        print("Server response: \(text)")
-                        if let data = text.data(using: .utf8),
-                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-
-                            // Log incoming message payload
-                            print("Incoming message payload: \(json)")
-
-                            // Handle command messages
-                            if let command = json["command"] as? String {
-                                switch command {
-                                case "record":
-                                    // Parse optional duration parameter (in milliseconds), default to 30 seconds
-                                    var duration = 30000 // 30 seconds default
-                                    if let durationValue = json["duration"] as? Int {
-                                        duration = durationValue
-                                    }
-                                    self?.recordingDurationMs = duration
-
-                                    // Parse optional autoUpload flag, default to false
-                                    // Parse optional autoUpload flag, default to false
-                                    let autoUpload = (json["autoUpload"] as? NSNumber)?.boolValue ?? false
-
-                                    // Parse optional camera parameter
-                                    let requestedCamera = json["camera"] as? String
-
-                                    DispatchQueue.main.async {
-                                        // content of durationSeconds
-                                        let durationSeconds = Double(duration) / 1000.0
-
-                                        // Switch camera if needed
-                                        if let cameraType = requestedCamera {
-                                            let targetPosition: AVCaptureDevice.Position = (cameraType.lowercased() == "back") ? .back : .front
-                                            if self?.currentCameraPosition != targetPosition {
-                                                self?.switchCamera()
-                                            }
-                                        }
-
-                                        // Start recording
-                                        self?.startRecording()
-
-                                        // Set auto-stop timer to stop recording and optionally upload after the specified duration
-                                        self?.autoStopTimer?.invalidate()
-                                        self?.autoStopTimer = Timer.scheduledTimer(withTimeInterval: durationSeconds, repeats: false) { [weak self] _ in
-                                            print("Auto-stopping recording after \(durationSeconds)s")
-                                            self?.stopRecording(autoUpload: autoUpload) {
-                                                print("Recording and upload workflow completed")
-                                            }
-                                        }
-                                    }
-                                default:
-                                    print("Unknown command: \(command)")
-                                }
-                            } else if let status = json["status"] as? String {
-                                // Handle status messages
-                                if status == "success" {
-                                    let alert = UIAlertController(title: "Upload Successful", message: "Video uploaded successfully", preferredStyle: .alert)
-                                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                                    self?.present(alert, animated: true)
-                                }
-                            }
-                        }
-                        // Continue listening for more messages
-                        self?.receiveWebSocketMessage()
-                    case .data(let data):
-                        print("Received binary data from server")
-                        self?.receiveWebSocketMessage()
-                    @unknown default:
-                        break
-                    }
+                case .success:
+                     print("Video upload initiated/completed successfully")
                 case .failure(let error):
-                    print("WebSocket receive error: \(error)")
-
-                    // If we haven't connected yet and were using WSS, try the WS fallback
-                    if self?.isConnected == false && self?.isSecureProtocol == true {
-                        let errorString = error.localizedDescription.lowercased()
-                        // Check for common secure connection errors
-                        if errorString.contains("tls") || errorString.contains("certificate") || errorString.contains("refused") || errorString.contains("connection") {
-                            print("WSS connection failed, attempting WS fallback...")
-                            self?.connectionAttemptTimer?.invalidate()
-                            self?.connectionAttemptTimer = nil
-                            self?.attemptWsFallback()
-                        }
-                    } else if self?.isConnected == false {
-                        // WS fallback also failed
-                        print("WS fallback connection failed")
-                        self?.connectionAttemptTimer?.invalidate()
-                        self?.connectionAttemptTimer = nil
-                        self?.isAttemptingConnection = false
-                        self?.updateConnectionStatusIcon()
-                    } else if self?.isConnected == true {
-                        // Server was connected but became unavailable - mark as disconnected
-                        print("Server disconnected unexpectedly")
-                        self?.handleServerDisconnection()
-                    }
+                    let alert = UIAlertController(title: "Upload Failed", message: "Failed to upload video: \(error.localizedDescription)", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self?.present(alert, animated: true)
                 }
             }
-        }
-    }
-
-    private func handleServerDisconnection() {
-        isConnected = false
-        isAttemptingConnection = false
-        connectionAttemptTimer?.invalidate()
-        connectionAttemptTimer = nil
-        webSocketTask = nil
-
-        print("Updating UI to reflect server disconnection")
-        updateConnectionStatusIcon()
-
-        // Optionally show a notification to the user
-        let alert = UIAlertController(title: "Server Disconnected", message: "The connection to the server was lost. Please check your network and try reconnecting.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Reconnect", style: .default) { [weak self] _ in
-            self?.setupWebSocketConnection()
-        })
-        alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
-        self.present(alert, animated: true)
-
-        // Attempt automatic reconnection after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            guard let self = self, !self.isConnected && !self.isAttemptingConnection else { return }
-            print("Attempting automatic reconnection after server disconnection...")
-            self.setupWebSocketConnection()
         }
     }
 }
