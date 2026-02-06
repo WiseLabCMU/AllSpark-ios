@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.2.0...v0.3.0) (2026-02-06)
+
+
+### Features
+
+* **network:** manage network connection as a background task ([e36b643](https://github.com/WiseLabCMU/AllSpark-ios/commit/e36b6434656666bc949e48b9ca79a418599987a4))
+* **server:** make general client settings config at server level ([2611223](https://github.com/WiseLabCMU/AllSpark-ios/commit/261122306d28c948c97bd4830dfb9d3b461b7b32))
+* **ws:** migrate connection status to inline settings ([a8cf255](https://github.com/WiseLabCMU/AllSpark-ios/commit/a8cf2555d1de9afab61ebd87caba0404f86f4919))
+
+
+### Bug Fixes
+
+* **config:** perform deep merge from default config ([339ca0c](https://github.com/WiseLabCMU/AllSpark-ios/commit/339ca0c98894ab7362fe113dd988ee16ee5cc7e5))
+
 ## [0.2.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.1.0...v0.2.0) (2026-01-23)
 
 
