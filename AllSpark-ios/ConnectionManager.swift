@@ -11,8 +11,11 @@ class ConnectionManager: NSObject, ObservableObject {
 
     // Published properties for UI binding
     @Published var isConnected = false
+
     @Published var isAttemptingConnection = false
     @Published var isSecureProtocol = false
+    @Published var clientConfig: [String: Any]?
+
 
     // Internal properties
     private var webSocketTask: URLSessionWebSocketTask?
@@ -214,7 +217,21 @@ class ConnectionManager: NSObject, ObservableObject {
         if let data = text.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
 
+            // Broadcast message to listeners (e.g. CameraViewController)
             DispatchQueue.main.async {
+                // Check if it's a client config message
+                if let type = json["type"] as? String, type == "clientConfig",
+                   let config = json["config"] as? [String: Any] {
+                    self.clientConfig = config
+                    print("Received client config: \(config)")
+
+                    // Update UserDefaults if videoFormat is present
+                    if let videoFormat = config["videoFormat"] as? String {
+                        UserDefaults.standard.set(videoFormat, forKey: "videoFormat")
+                    }
+                    return
+                }
+
                 NotificationCenter.default.post(name: .didReceiveRemoteCommand, object: nil, userInfo: ["payload": json])
             }
         }

@@ -33,11 +33,6 @@ struct SettingsView: View {
                             .autocapitalization(.words)
                             .textInputAutocapitalization(.words)
                     }
-
-                    Picker("Video Format", selection: $videoFormat) {
-                        Text("MP4").tag("mp4")
-                        Text("MOV").tag("mov")
-                    }
                 }
 
                 Section(header: Text("Server")) {
@@ -111,6 +106,13 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(UIColor.systemGroupedBackground))
+        .onReceive(connectionManager.$clientConfig) { config in
+            if let config = config,
+               let jsonData = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                displayText = "Received Client Config:\n\(jsonString)"
+            }
+        }
     }
 
 
