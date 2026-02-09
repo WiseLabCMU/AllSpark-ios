@@ -41,7 +41,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     // Display layer
     private var imageView: UIImageView!
-    // private var recordButton: UIButton! // Removed
     private var switchCameraButton: UIButton!
     private var uploadButton: UIButton!
     private var timerLabel: UILabel!
@@ -54,7 +53,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         super.viewDidLoad()
 
         setupImageView()
-        // setupRecordButton() // Removed
 
         setupSwitchCameraButton()
         setupUploadButton()
@@ -102,9 +100,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(imageView)
     }
-
-    // recordButton setup removed
-
 
     private func setupSwitchCameraButton() {
         switchCameraButton = UIButton(type: .system)
@@ -415,21 +410,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Reset coordinator to force re-initialization with new device
         rotationCoordinator = nil
 
-        // Ensure connection orientation is correct
-        if let connection = videoOutput.connection(with: .video) {
-            if #available(iOS 17.0, *) {
-                 // updateVideoOrientation will handle re-init of coordinator
-            } else {
-                connection.videoOrientation = .portrait
-                // For back camera, we might need to adjust mirroring if we were mirroring front
-                if currentCameraPosition == .front {
-                    connection.isVideoMirrored = true
-                } else {
-                    connection.isVideoMirrored = false
-                }
-            }
-        }
-
         captureSession.commitConfiguration()
 
         // Update orientation logic (re-inits coordinator)
@@ -437,8 +417,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
             self.updateVideoOrientation()
         }
     }
-
-
 
     private func updateTimerDisplay() {
         let minutes = Int(recordingDuration) / 60
@@ -790,7 +768,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func updateVideoOrientation() {
-        if #available(iOS 17.0, *), let videoCaptureDevice = captureSession.inputs.first as? AVCaptureDeviceInput {
+        if let videoCaptureDevice = captureSession.inputs.first as? AVCaptureDeviceInput {
             // Initialize RotationCoordinator if needed
             if rotationCoordinator == nil {
                 let coordinator = AVCaptureDevice.RotationCoordinator(device: videoCaptureDevice.device, previewLayer: nil)
@@ -808,11 +786,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                     connection.videoRotationAngle = self.videoRotationAngle
                  }
             }
-        } else {
-             // Fallback for older iOS
-             if let connection = videoOutput.connection(with: .video) {
-                 connection.videoOrientation = .portrait
-             }
         }
     }
 
