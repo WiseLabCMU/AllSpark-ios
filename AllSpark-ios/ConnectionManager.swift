@@ -20,8 +20,10 @@ class ConnectionManager: NSObject, ObservableObject {
     // Internal properties
     private var webSocketTask: URLSessionWebSocketTask?
     private var webSocketURL: URL?
+
     private var connectionAttemptTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private let uploadQueue = DispatchQueue(label: "com.allspark.uploadQueue")
 
     private override init() {
         super.init()
@@ -252,47 +254,52 @@ class ConnectionManager: NSObject, ObservableObject {
     // MARK: - Upload Logic
 
     func uploadVideo(at fileURL: URL, completion: ((Result<Void, Error>) -> Void)? = nil) {
-        guard isConnected, let webSocketTask = webSocketTask else {
-            completion?(.failure(NSError(domain: "ConnectionManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "WebSocket not connected"])))
-            return
-        }
+        uploadQueue.async { [weak self] in
+            guard let self = self, self.isConnected, let task = self.webSocketTask else {
+                completion?(.failure(NSError(domain: "ConnectionManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "WebSocket not connected"])))
+                return
+            }
 
-        let videoData: Data
-        do {
-            videoData = try Data(contentsOf: fileURL)
-        } catch {
-            completion?(.failure(error))
-            return
-        }
+            let videoData: Data
+            do {
+                videoData = try Data(contentsOf: fileURL)
+            } catch {
+                completion?(.failure(error))
+                return
+            }
 
-        let filename = fileURL.lastPathComponent
-        let fileExtension = (filename as NSString).pathExtension.lowercased()
-        let mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
+            let filename = fileURL.lastPathComponent
+            let fileExtension = (filename as NSString).pathExtension.lowercased()
+            let mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
 
-        let metadata: [String: Any] = [
-            "type": "upload",
-            "filename": filename,
-            "filesize": videoData.count,
-            "mimetype": mimetype
-        ]
+            let metadata: [String: Any] = [
+                "type": "upload",
+                "filename": filename,
+                "filesize": videoData.count,
+                "mimetype": mimetype
+            ]
 
-        if let jsonData = try? JSONSerialization.data(withJSONObject: metadata, options: []),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: metadata, options: []),
+                  let jsonString = String(data: jsonData, encoding: .utf8) else {
+                completion?(.failure(NSError(domain: "ConnectionManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to create metadata"])))
+                return
+            }
 
             let metadataMessage = URLSessionWebSocketTask.Message.string(jsonString)
-            webSocketTask.send(metadataMessage) { [weak self] error in
+            let dataMessage = URLSessionWebSocketTask.Message.data(videoData)
+
+            // Send messages back-to-back to ensure ordering on the socket
+            task.send(metadataMessage) { error in
+                if let error = error {
+                    print("Error sending metadata: \(error)")
+                }
+            }
+
+            task.send(dataMessage) { error in
                 if let error = error {
                     completion?(.failure(error))
-                    return
-                }
-
-                let dataMessage = URLSessionWebSocketTask.Message.data(videoData)
-                self?.webSocketTask?.send(dataMessage) { error in
-                    if let error = error {
-                        completion?(.failure(error))
-                    } else {
-                        completion?(.success(()))
-                    }
+                } else {
+                    completion?(.success(()))
                 }
             }
         }
