@@ -89,8 +89,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
-
             }
 
             Divider()
@@ -114,8 +112,6 @@ struct SettingsView: View {
             }
         }
     }
-
-
 
     private func openAppSettings() {
         guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
