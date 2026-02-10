@@ -35,6 +35,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     private var recordingDurationMs: Int = 30000 // Default 30 seconds in milliseconds
     private var autoStopTimer: Timer?
     private var shouldUploadAfterRecording = false
+    private let recordingStateLock = NSLock()
 
     // WebSocket Connection
     private var cancellables = Set<AnyCancellable>()
@@ -430,6 +431,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // Start UI Timer Loop
         // Note: recordingDuration is reset in startRecordingChunk
 
+        startRecordingChunk()
+
         recordingTimer?.invalidate()
         DispatchQueue.main.async {
             self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -438,8 +441,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                 self.updateTimerDisplay()
             }
         }
-
-        startRecordingChunk()
     }
 
     private func startRecordingChunk() {
@@ -509,8 +510,10 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                 assetWriter!.startWriting()
                 // assetWriter!.startSession(atSourceTime: .zero) // REMOVED: Will start session on first frame
 
+                recordingStateLock.lock()
                 isRecording = true
                 sessionAtSourceTime = nil
+                recordingStateLock.unlock()
 
                 print("Started recording chunk: \(videoName)")
 
@@ -530,10 +533,13 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                 let chunkSeconds = Double(chunkMs) / 1000.0
 
                 // Schedule next chunk
-                self.autoStopTimer?.invalidate()
-                self.autoStopTimer = Timer.scheduledTimer(withTimeInterval: chunkSeconds, repeats: false) { [weak self] _ in
-                    print("Chunk complete, cycling...")
-                    self?.cycleRecordingChunk()
+                DispatchQueue.main.async { [weak self] in
+                    self?.autoStopTimer?.invalidate()
+                    print("Scheduling timer for \(chunkSeconds)s on thread: \(Thread.current.description)")
+                    self?.autoStopTimer = Timer.scheduledTimer(withTimeInterval: chunkSeconds, repeats: false) { [weak self] _ in
+                        print("Timer fired! Chunk complete, cycling...")
+                        self?.cycleRecordingChunk()
+                    }
                 }
             } else {
                 print("Failed to add video input to asset writer")
@@ -559,7 +565,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         autoStopTimer?.invalidate()
         autoStopTimer = nil
 
+        recordingStateLock.lock()
         isRecording = false // This prevents cycleRecordingChunk from starting a new one
+        recordingStateLock.unlock()
 
         // Stop UI Timer
         recordingTimer?.invalidate()
@@ -580,15 +588,27 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         // If we set isRecording=false in stopRecording, then recordVideoFrame stops sending frames.
         // Then we call stopRecordingChunk to close the writer.
 
+        recordingStateLock.lock()
+        // Ensure we stop accepting frames immediately
+        isRecording = false
+
         guard let writer = assetWriter else {
+            recordingStateLock.unlock()
             completion?()
             return
         }
+        recordingStateLock.unlock()
 
         // recordingTimer is now managed by stopRecording()
 
         if writer.status == .failed {
             print("Asset writer status is failed: \(String(describing: writer.error))")
+        } else if writer.status == .completed {
+             print("Asset writer already completed.")
+        } else if writer.status == .cancelled {
+             print("Asset writer cancelled.")
+        } else {
+             print("Finishing asset writer... Status: \(writer.status.rawValue)")
         }
 
         assetWriterInput?.markAsFinished()
@@ -598,7 +618,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         let savedURL = videoURL
 
         writer.finishWriting { [weak self] in
+            print("Finish writing completion block entered.")
             guard let self = self else {
+                print("Self is nil in finishWriting completion.")
                 completion?()
                 return
             }
@@ -607,10 +629,12 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                print("Chunk saved: \(url.lastPathComponent)")
             }
 
+            self.recordingStateLock.lock()
             self.assetWriter = nil
             self.assetWriterInput = nil
             self.audioWriterInput = nil
             self.adapter = nil
+            self.recordingStateLock.unlock()
 
             completion?()
         }
@@ -853,6 +877,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func recordAudioFrame(_ sampleBuffer: CMSampleBuffer) {
+        recordingStateLock.lock()
+        defer { recordingStateLock.unlock() }
+
         guard isRecording, let audioInput = audioWriterInput, audioInput.isReadyForMoreMediaData else { return }
 
         if sessionAtSourceTime == nil {
@@ -868,14 +895,14 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func recordVideoFrame(_ image: CIImage, timestamp: CMTime) {
-        guard isRecording, let adapter = adapter, let input = assetWriterInput, input.isReadyForMoreMediaData else { return }
+        // 1. Quick check
+        recordingStateLock.lock()
+        let shouldRecord = isRecording
+        recordingStateLock.unlock()
 
-        if sessionAtSourceTime == nil {
-            sessionAtSourceTime = timestamp
-            assetWriter?.startSession(atSourceTime: timestamp)
-        }
+        guard shouldRecord else { return }
 
-        // Render CIImage to CVPixelBuffer
+        // Render CIImage to CVPixelBuffer (expensive, outside lock)
         var pixelBuffer: CVPixelBuffer?
         let attrs = [
             kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue,
@@ -890,12 +917,27 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         if status == kCVReturnSuccess, let buffer = pixelBuffer {
             context.render(image, to: buffer)
 
+            // 2. Append (lock)
+            recordingStateLock.lock()
+            defer { recordingStateLock.unlock() }
+
+            // Re-check state
+            guard isRecording, let adapter = adapter, let input = assetWriterInput, input.isReadyForMoreMediaData else {
+                return
+            }
+
+            if sessionAtSourceTime == nil {
+                print("Starting session at \(timestamp.seconds)")
+                sessionAtSourceTime = timestamp
+                assetWriter?.startSession(atSourceTime: timestamp)
+            }
+
             let success = adapter.append(buffer, withPresentationTime: timestamp)
             if !success {
                 print("Failed to append buffer. Writer status: \(String(describing: assetWriter?.status.rawValue)) Error: \(String(describing: assetWriter?.error))")
             }
         } else {
-            print("Failed to create CVPixelBuffer")
+            print("Failed to create CVPixelBuffer: \(status)")
         }
     }
 
