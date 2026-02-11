@@ -59,7 +59,12 @@ class ConnectionManager: NSObject, ObservableObject {
     func connect() {
         guard !isConnected && !isAttemptingConnection else { return }
 
-        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
+        var hostString = UserDefaults.standard.string(forKey: "serverHost") ?? ""
+
+        guard !hostString.isEmpty else {
+            print("No server host configured")
+            return
+        }
 
         // Strip any existing protocol
         if hostString.lowercased().hasPrefix("http://") {
@@ -276,7 +281,6 @@ class ConnectionManager: NSObject, ObservableObject {
                 // Auto-connect if we found a server and aren't connected
                 if let firstResult = results.first,
                    !self.isConnected,
-                   !self.isAttemptingConnection,
                    !self.isResolvingEndpoint {
                     print("Auto-connecting to discovered server: \(firstResult.endpoint)")
                     self.connectToDiscoveredServer(firstResult)
@@ -315,8 +319,13 @@ class ConnectionManager: NSObject, ObservableObject {
 
                     DispatchQueue.main.async {
                         print("Resolved service to: \(serverAddress)")
-                        UserDefaults.standard.set(serverAddress, forKey: "serverHost")
-                        // The observer on UserDefaults will automatically trigger a reconnection
+                        if UserDefaults.standard.string(forKey: "serverHost") != serverAddress {
+                            UserDefaults.standard.set(serverAddress, forKey: "serverHost")
+                            // The observer on UserDefaults will automatically trigger a reconnection
+                        } else if !self!.isConnected && !self!.isAttemptingConnection {
+                            // If host matches but we aren't connected, trigger connection
+                             self?.connect()
+                        }
 
                         // Clean up resolver
                         self?.resolverConnection?.cancel()

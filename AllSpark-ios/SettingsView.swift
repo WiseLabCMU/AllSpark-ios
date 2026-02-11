@@ -2,9 +2,8 @@ import SwiftUI
 import Network
 
 struct SettingsView: View {
-    @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
     @ObservedObject private var connectionManager = ConnectionManager.shared
-    @AppStorage("videoFormat") private var videoFormat: String = "mp4"
+    @AppStorage("serverHost") private var serverHost: String = ""
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
     @State private var displayText: String = "Ready to test."
