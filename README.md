@@ -6,17 +6,19 @@ AllSpark system mobile app for iOS. This app provides real-time video capture, r
 
 - **Camera Capture**: Real-time video capture from front or back camera
 - **Face Detection & Blurring**: Automatic detection and pixelation of faces using Vision framework
-- **Video Recording**: Record video to device with timestamp naming (supports MP4 and MOV formats)
+- **Continuous Recording**: Automatically records video in chunks (default 30s) when camera view is active
+- **Storage Management**: Automatically manages device storage by deleting oldest recordings when limit is reached
+- **Auto-Discovery**: Automatically discovers available servers on the local network using Bonjour/mDNS
+- **Time-Range Upload**: Server can request upload of video segments for specific time ranges
 - **Video Format Selection**: Choose between MP4 (default) or MOV format for recordings
-- **Video Upload**: Upload recorded or selected videos to a remote server via WebSocket
-- **Network Configuration**: Configurable server host for flexible deployment
-- **Connection Testing**: Built-in WebSocket and HTTP health check utilities
+- **Network Configuration**: Configurable server host with support for discovered services
 
 ## Architecture
 
-- **CameraViewController**: Handles camera capture, face detection, video recording, and WebSocket communication
-- **SettingsView**: Network configuration and connection diagnostics
-- **WebSocket Protocol**: Two-phase upload (metadata → binary data)
+- **CameraViewController**: Handles camera capture, face detection, continuous video recording, and user interaction
+- **ConnectionManager**: Singleton managing WebSocket connections, Bonjour service discovery, and video uploads
+- **SettingsView**: Network configuration, server discovery list, and connection diagnostics
+- **WebSocket Protocol**: Two-phase upload (metadata → binary data) & JSON command interface
 
 ## WebSocket Communication
 
@@ -105,33 +107,54 @@ var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhos
 
 ---
 
-#### Command Message - Record with Duration and Auto-Upload
+#### Command Message - Request Upload Time Range
 
 **Format:**
 ```json
 {
-  "command": "record",
-  "message": "Optional additional context or instructions",
-  "duration": 5000,
-  "autoUpload": true,
-  "camera": "front"
+  "command": "uploadTimeRange",
+  "message": "Optional additional context",
+  "startTime": 1700000000.0,
+  "endTime": 1700000060.0
 }
 ```
 
 **Parameters:**
-- `command` (required): `"record"` - Server requests client to record
-- `message` (optional): Additional context to display to user
-- `duration` (optional): Recording duration in milliseconds (default: 30000 = 30 seconds)
-- `autoUpload` (optional): Whether to automatically upload after recording stops (default: false)
-- `camera` (optional): Camera to use (`"front"` or `"back"`). If omitted, active camera is used.
+- `command` (required): `"uploadTimeRange"` - Server requests client to upload video covering a specific range
+- `startTime` (required): Unix timestamp (seconds) for start of range
+- `endTime` (required): Unix timestamp (seconds) for end of range
 
 **App Behavior**:
-- Automatically starts video recording
-- Records for the specified duration
-- Displays alert with duration and auto-upload status
-- When duration expires, stops recording
-- If `autoUpload` is true, automatically uploads the recorded file to server
-- If `autoUpload` is false, saves the file locally without uploading
+- Scans local recordings for files overlapping with the requested time range
+- Automatically uploads any matching files to the server
+- Ignores files that do not overlap the range
+
+---
+
+#### Client Configuration Sync
+
+**Received when**: Client connects to server or server config changes
+
+**Format:**
+```json
+{
+  "type": "clientConfig",
+  "config": {
+    "videoFormat": "mp4",
+    "videoChunkDurationMs": 30000,
+    "videoBufferMaxMB": 16000
+  }
+}
+```
+
+**Parameters:**
+- `videoFormat`: Preferred video format (`"mp4"` or `"mov"`)
+- `videoChunkDurationMs`: Duration of each recording chunk in milliseconds
+- `videoBufferMaxMB`: Maximum storage space to use for video buffer (oldest files deleted when exceeded)
+
+**App Behavior**:
+- Updates local settings to match server configuration
+- Adjusts recording chunk size and storage limits dynamically
 
 ---
 
@@ -168,33 +191,28 @@ Located in **SettingsView.swift**, allows users to:
    - Useful for identifying specific devices in the test host
    - Defaults to the iOS device name (e.g., "iPhone")
 
-1. **Select Video Format**
-   - Default: `MP4`
-   - Options: `MP4` or `MOV`
-   - Selection applies to all future recordings
-   - Upload metadata includes correct MIME type based on format
-
-1. **Configure Server Host**
+2. **Configure Server Host**
+   - **Auto-Discovery**: Automatically updates with server found on local network (Bonjour/mDNS)
+   - **Manual Entry**: Allows manual IP/Hostname entry if server is not discovered, edits will automatically attempt to connect to WebSocket
    - Default: `localhost:8080`
    - Supports: IP addresses, hostnames, with or without protocol prefix
 
-1. **Set SSL Verfification**
+3. **Configure Server Discovery**
+   - **Auto-Discovery**: Automatically lists servers using `_allspark._tcp` found on local network (Bonjour/mDNS)
+   - **Manual Discovery**: Allows manual selection of discovered servers to connect to
+
+4. **Set SSL Verfification**
    - Default: `true`
    - If testing self-signed certificates, set to `false`
 
-1. **Test WebSocket Connection**
-   - Initiates a test WebSocket connection to verify server reachability
+5. **Control/Monitor WebSocket Connection**
+    **Manual Connection**: When `Disconnected` allows WebSocket connection attempts
+    **Manual Disconnection**: When `Connected` allows WebSocket disconnection
    - Displays connection status (success/failure)
    - Shows connection protocol (ws:// or wss://) being used
    - Useful for diagnosing network or certificate issues
 
-1. **Test HTTP Connection**
-   - Calls `/api/health` endpoint
-   - Verifies server status and uptime
-   - Displays health check response
-   - Shows connection protocol (http:// or https://) being used
-
-1. **Edit Permissions**
+6. **Edit Permissions**
     - Opens Allspark's iOS app permissions settings
     - *Local Network*: May be required for WebSocket/HTTP connections depending on server configuration
     - *Microphone*: Required for audio recording
@@ -230,47 +248,19 @@ The app makes HTTP requests to the following endpoints:
 - **GET `/api/health`** - Health check during connection test
   - Returns: `{ "status": "ok", "timestamp": "...", "uptime": ... }`
 
-## WebSocket Flow Diagram
+## Continuous Recording Workflow
 
-```
-iOS App                           Server
-   |                                |
-   |-- Connect WebSocket ---------> |
-   |                                |
-   |<-- Send Metadata (JSON) ------ | (if uploading)
-   |                                |
-   |<-- Send Video Data (Binary) -- | (if uploading)
-   |                                |
-   |<-- Status: success/error ----- |
-   |                                |
-   |<-- Command: record ----------- |
-   |   (with duration & autoUpload) |
-   |                                |
-   |-- Start Recording ----------> |
-   |                                |
-   |-- Record for duration -------> |
-   |                                |
-   |-- Auto-stop & Upload --------> | (if autoUpload=true)
-   |   (metadata & binary)          |
-   |                                |
-   |<-- Status: success/error ----- |
-```
+The app operates on a "always-recording" model when the Camera view is active:
 
-## Auto-Recording Workflow
+1. **View Appears**: Camera initializes and recording starts immediately.
+2. **Chunking**: Video is recorded in chunks (default 30 seconds) defined by `videoChunkDurationMs`.
+3. **Storage**: Files are saved locally to the device.
+4. **Cleanup**: Oldest files are automatically deleted when total storage exceeds `videoBufferMaxMB`.
+5. **Upload**: Files are NOT uploaded automatically. They are only uploaded when:
+    - User explicitly taps "Upload" button
+    - Server sends an `uploadTimeRange` command matching the file's time range
 
-When the server sends a `record` command with `duration` and `autoUpload` parameters:
-
-1. **Client receives command** with duration (e.g., 5000ms) and autoUpload flag
-2. **Recording starts immediately** without user interaction
-3. **Alert displayed** showing duration and auto-upload status
-4. **Recording continues** for the specified duration
-5. **Auto-stop triggered** when timer expires
-6. **File saved** to device
-7. **Auto-upload triggered** (if `autoUpload` is true):
-   - Metadata sent to server
-   - Video file streamed to server
-   - Server acknowledges receipt
-8. **Process complete** - Ready for next command
+This ensures a buffer of recent video is always available for on-demand retrieval without saturating network bandwidth.
 
 ## Icons
 
