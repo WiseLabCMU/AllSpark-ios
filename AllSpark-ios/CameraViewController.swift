@@ -638,6 +638,9 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
             completion?()
         }
+
+        // Manage storage after saving
+        ConnectionManager.shared.manageVideoStorage()
     }
 
     private func setupCamera() {

@@ -38,6 +38,9 @@ class ConnectionManager: NSObject, ObservableObject {
         // Initial connection attempt
         connect()
         startBrowsing()
+
+        // Check video storage on launch
+        manageVideoStorage()
     }
 
     deinit {
@@ -241,6 +244,9 @@ class ConnectionManager: NSObject, ObservableObject {
                     if let videoFormat = config["videoFormat"] as? String {
                         UserDefaults.standard.set(videoFormat, forKey: "videoFormat")
                     }
+
+                    // Trigger storage management
+                    self.manageVideoStorage()
                     return
                 }
 
@@ -396,6 +402,62 @@ class ConnectionManager: NSObject, ObservableObject {
                 } else {
                     completion?(.success(()))
                 }
+            }
+        }
+    }
+
+    // MARK: - Video Storage Management
+
+    func manageVideoStorage() {
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+            // Get limit from config (default 16000 MB)
+            var limitMB = 16000
+            if let config = self?.clientConfig,
+               let configLimit = config["videoBufferMaxMB"] as? Int {
+                limitMB = configLimit
+            }
+
+            let limitBytes = Int64(limitMB) * 1024 * 1024
+
+            do {
+                let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey, .fileSizeKey], options: .skipsHiddenFiles)
+
+                // Filter for video files
+                var videoFiles = fileURLs.filter { $0.pathExtension == "mp4" || $0.pathExtension == "mov" }
+
+                // Calculate total size
+                var totalSize: Int64 = 0
+                var fileDetails: [(url: URL, size: Int64, date: Date)] = []
+
+                for url in videoFiles {
+                    let resources = try url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey])
+                    if let size = resources.fileSize, let date = resources.creationDate {
+                        let size64 = Int64(size)
+                        totalSize += size64
+                        fileDetails.append((url: url, size: size64, date: date))
+                    }
+                }
+
+                print("Total video storage usage: \(totalSize / 1024 / 1024) MB (Limit: \(limitMB) MB)")
+
+                if totalSize > limitBytes {
+                    // Sort by date (oldest first)
+                    fileDetails.sort { $0.date < $1.date }
+
+                    for file in fileDetails {
+                        if totalSize > limitBytes {
+                            try FileManager.default.removeItem(at: file.url)
+                            totalSize -= file.size
+                            print("Deleted old video to free space: \(file.url.lastPathComponent)")
+                        } else {
+                            break
+                        }
+                    }
+                }
+            } catch {
+                print("Error managing video storage: \(error)")
             }
         }
     }
