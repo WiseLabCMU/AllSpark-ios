@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Combine
+import Network
 
 extension Notification.Name {
     static let didReceiveRemoteCommand = Notification.Name("didReceiveRemoteCommand")
@@ -15,7 +16,7 @@ class ConnectionManager: NSObject, ObservableObject {
     @Published var isAttemptingConnection = false
     @Published var isSecureProtocol = false
     @Published var clientConfig: [String: Any]?
-
+    @Published var discoveredServers: [NWBrowser.Result] = []
 
     // Internal properties
     private var webSocketTask: URLSessionWebSocketTask?
@@ -24,6 +25,9 @@ class ConnectionManager: NSObject, ObservableObject {
     private var connectionAttemptTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private let uploadQueue = DispatchQueue(label: "com.allspark.uploadQueue")
+    private var browser: NWBrowser?
+    private var resolverConnection: NWConnection?
+    private var isResolvingEndpoint = false
 
     private override init() {
         super.init()
@@ -33,6 +37,7 @@ class ConnectionManager: NSObject, ObservableObject {
 
         // Initial connection attempt
         connect()
+        startBrowsing()
     }
 
     deinit {
@@ -249,6 +254,87 @@ class ConnectionManager: NSObject, ObservableObject {
                 self?.connect()
             }
         }
+    }
+
+    // MARK: - Service Discovery
+
+    private func startBrowsing() {
+        let descriptor = NWBrowser.Descriptor.bonjour(type: "_allspark._tcp", domain: "local.")
+        let browser = NWBrowser(for: descriptor, using: .tcp)
+
+        browser.stateUpdateHandler = { newState in
+            print("Browser state: \(newState)")
+        }
+
+        browser.browseResultsChangedHandler = { [weak self] results, changes in
+            guard let self = self else { return }
+
+            DispatchQueue.main.async {
+                self.discoveredServers = Array(results)
+                print("Discovered servers: \(results.count)")
+
+                // Auto-connect if we found a server and aren't connected
+                if let firstResult = results.first,
+                   !self.isConnected,
+                   !self.isAttemptingConnection,
+                   !self.isResolvingEndpoint {
+                    print("Auto-connecting to discovered server: \(firstResult.endpoint)")
+                    self.connectToDiscoveredServer(firstResult)
+                }
+            }
+        }
+
+        browser.start(queue: DispatchQueue.main)
+        self.browser = browser
+    }
+
+    func connectToDiscoveredServer(_ result: NWBrowser.Result) {
+        guard !isResolvingEndpoint else { return }
+        isResolvingEndpoint = true
+
+        // Create a temporary connection to resolve the endpoint to a host/port
+        let connection = NWConnection(to: result.endpoint, using: .tcp)
+        self.resolverConnection = connection
+
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                if let innerEndpoint = connection.currentPath?.remoteEndpoint,
+                   case let .hostPort(host, port) = innerEndpoint {
+
+                    let hostString: String
+                    switch host {
+                    case .ipv4(let ip): hostString = "\(ip)"
+                    case .ipv6(let ip): hostString = "[\(ip)]"
+                    case .name(let name, _): hostString = name
+                    @unknown default: hostString = "unknown"
+                    }
+
+                    let portString = "\(port.rawValue)"
+                    let serverAddress = "\(hostString):\(portString)"
+
+                    DispatchQueue.main.async {
+                        print("Resolved service to: \(serverAddress)")
+                        UserDefaults.standard.set(serverAddress, forKey: "serverHost")
+                        // The observer on UserDefaults will automatically trigger a reconnection
+
+                        // Clean up resolver
+                        self?.resolverConnection?.cancel()
+                        self?.resolverConnection = nil
+                        self?.isResolvingEndpoint = false
+                    }
+                }
+            case .failed(let error):
+                print("Failed to resolve service: \(error)")
+                self?.resolverConnection?.cancel()
+                self?.resolverConnection = nil
+                self?.isResolvingEndpoint = false
+            default:
+                break
+            }
+        }
+
+        connection.start(queue: DispatchQueue.global())
     }
 
     // MARK: - Upload Logic

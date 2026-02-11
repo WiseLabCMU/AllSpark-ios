@@ -1,4 +1,5 @@
 import SwiftUI
+import Network
 
 struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = "localhost:8080"
@@ -39,11 +40,34 @@ struct SettingsView: View {
                     HStack {
                         Text("Server Host")
                         Spacer()
-                        TextField("Server Host", text: $serverHost)
+                        TextField("Server Host", text: Binding(
+                            get: { self.serverHost },
+                            set: { self.serverHost = $0.lowercased() }
+                        ))
                             .multilineTextAlignment(.trailing)
                             .keyboardType(.URL)
-                            .autocapitalization(.none)
+                            .autocorrectionDisabled(true)
                             .textInputAutocapitalization(.never)
+                    }
+
+                    if !connectionManager.discoveredServers.isEmpty {
+                        Section(header: Text("Discovered Servers")) {
+                            ForEach(connectionManager.discoveredServers, id: \.hashValue) { result in
+                                Button(action: {
+                                    connectionManager.connectToDiscoveredServer(result)
+                                }) {
+                                    HStack {
+                                        if case .service(name: let name, type: let type, domain: let domain, interface: let interface) = result.endpoint {
+                                            Text(name)
+                                                .foregroundColor(.primary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "network")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
