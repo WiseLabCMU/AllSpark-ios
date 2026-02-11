@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
     @State private var displayText: String = "Ready to test."
+    @State private var selectedEndpoint: NWEndpoint?
 
     init() {
         // Set default deviceName from UIDevice if not already set
@@ -49,24 +50,29 @@ struct SettingsView: View {
                             .textInputAutocapitalization(.never)
                     }
 
+
                     if !connectionManager.discoveredServers.isEmpty {
-                        Section(header: Text("Discovered Servers")) {
-                            ForEach(connectionManager.discoveredServers, id: \.hashValue) { result in
-                                Button(action: {
-                                    connectionManager.connectToDiscoveredServer(result)
-                                }) {
-                                    HStack {
-                                        if case .service(name: let name, type: let type, domain: let domain, interface: let interface) = result.endpoint {
-                                            Text(name)
-                                                .foregroundColor(.primary)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "network")
-                                            .foregroundColor(.blue)
-                                    }
-                                }
-                            }
-                        }
+                        Picker("Servers Discovered", selection: $selectedEndpoint) {
+                             ForEach(connectionManager.discoveredServers, id: \.endpoint) { result in
+                                 if case .service(name: let name, type: _, domain: _, interface: _) = result.endpoint {
+                                     Text(name).tag(Optional(result.endpoint))
+                                 } else {
+                                     Text("Unknown").tag(Optional(result.endpoint))
+                                 }
+                             }
+                         }
+                         .pickerStyle(.menu)
+                         .onChange(of: selectedEndpoint) { newEndpoint in
+                              if let endpoint = newEndpoint,
+                                 let result = connectionManager.discoveredServers.first(where: { $0.endpoint == endpoint }) {
+                                  connectionManager.connectToDiscoveredServer(result)
+                              }
+                         }
+                         .onReceive(connectionManager.$discoveredServers) { servers in
+                             if selectedEndpoint == nil, let first = servers.first {
+                                 selectedEndpoint = first.endpoint
+                             }
+                         }
                     }
 
                     Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
