@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var displayText: String = "Awaiting remote configuration from server..."
     @State private var selectedEndpoint: NWEndpoint?
     @State private var showingInterfaces: Bool = false
+    @State private var showingScanner: Bool = false
 
     init() {
         // Set default deviceName from UIDevice if not already set
@@ -49,7 +50,23 @@ struct SettingsView: View {
 
                 Section(header: Text("Server")) {
                     HStack {
-                        Text("Server Host")
+                        if connectionManager.isConnected {
+                            Text("Server Host ") +
+                            Text("(Connected)")
+                                .foregroundColor(.green)
+                            if connectionManager.isSecureProtocol {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.green)
+                            }
+                        } else if connectionManager.isAttemptingConnection {
+                            Text("Server Host ") +
+                            Text("(Connecting...)")
+                                .foregroundColor(.orange)
+                        } else {
+                            Text("Server Host ") +
+                            Text("(Disconnected)")
+                                .foregroundColor(.red)
+                        }
                         Spacer()
                         TextField("Server Host", text: Binding(
                             get: { self.serverHost },
@@ -84,6 +101,15 @@ struct SettingsView: View {
                                  selectedEndpoint = first.endpoint
                              }
                          }
+                    } else {
+                        Button(action: {
+                            showingScanner = true
+                        }) {
+                            HStack {
+                                Image(systemName: "qrcode.viewfinder")
+                                Text("Scan Server QR Code")
+                            }
+                        }
                     }
 
                     Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
@@ -91,23 +117,7 @@ struct SettingsView: View {
 
                 Section(header: Text("Actions")) {
                     HStack {
-                        if connectionManager.isConnected {
-                            Text("WebSocket ") +
-                            Text("(Connected)")
-                                .foregroundColor(.green)
-                            if connectionManager.isSecureProtocol {
-                                Image(systemName: "lock.fill")
-                                    .foregroundColor(.green)
-                            }
-                        } else if connectionManager.isAttemptingConnection {
-                            Text("WebSocket ") +
-                            Text("(Connecting...)")
-                                .foregroundColor(.orange)
-                        } else {
-                            Text("WebSocket ") +
-                            Text("(Disconnected)")
-                                .foregroundColor(.red)
-                        }
+                        Text("WebSocket ")
                         Spacer()
                         Button(action: {
                             if connectionManager.isConnected {
@@ -170,6 +180,9 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showingScanner) {
+            PairingView(serverHost: $serverHost)
         }
     }
 
