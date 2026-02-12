@@ -377,17 +377,36 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     @objc private func switchCamera() {
-        guard !isRecording else { return } // Disable switching while recording
+        if isRecording {
+            // Cancel the automatic chunk timer to prevent race conditions
+            autoStopTimer?.invalidate()
 
+            // Stop current chunk
+            stopRecordingChunk { [weak self] in
+                // Switch camera and restart recording on main thread
+                DispatchQueue.main.async {
+                    self?.configureCameraSwitch()
+                    self?.startRecordingChunk()
+                }
+            }
+        } else {
+            configureCameraSwitch()
+        }
+    }
+
+    private func configureCameraSwitch() {
         captureSession.beginConfiguration()
 
-        // Remove existing input
-        if let currentInput = captureSession.inputs.first as? AVCaptureDeviceInput {
+        // Remove existing video input
+        if let currentInput = captureSession.inputs.compactMap({ $0 as? AVCaptureDeviceInput }).first(where: { $0.device.hasMediaType(.video) }) {
             captureSession.removeInput(currentInput)
         }
 
         // Toggle position
         currentCameraPosition = (currentCameraPosition == .front) ? .back : .front
+
+        // Save preference
+        UserDefaults.standard.set(currentCameraPosition == .front ? "front" : "back", forKey: "cameraPosition")
 
         // Get new device
         guard let newCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
@@ -795,7 +814,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     }
 
     private func updateVideoOrientation() {
-        if let videoCaptureDevice = captureSession.inputs.first as? AVCaptureDeviceInput {
+        // Find the video input, not just the first input (which could be audio)
+        if let videoCaptureDevice = captureSession.inputs.compactMap({ $0 as? AVCaptureDeviceInput }).first(where: { $0.device.hasMediaType(.video) }) {
             // Initialize RotationCoordinator if needed
             if rotationCoordinator == nil {
                 let coordinator = AVCaptureDevice.RotationCoordinator(device: videoCaptureDevice.device, previewLayer: nil)
@@ -811,6 +831,11 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
                 self.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
                  if let connection = videoOutput.connection(with: .video) {
                     connection.videoRotationAngle = self.videoRotationAngle
+
+                    // For now, don't mirror front camera, let's keep each a view accurate to what rthe camera will save.
+                    // if connection.isVideoMirroringSupported {
+                    //     connection.isVideoMirrored = (currentCameraPosition == .front)
+                    // }
                  }
             }
         }
