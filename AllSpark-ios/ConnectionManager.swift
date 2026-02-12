@@ -17,6 +17,7 @@ class ConnectionManager: NSObject, ObservableObject {
     @Published var isSecureProtocol = false
     @Published var clientConfig: [String: Any]?
     @Published var discoveredServers: [NWBrowser.Result] = []
+    @Published var ipAddresses: [String: String] = [:] // Interface -> IP
 
     // Internal properties
     private var webSocketTask: URLSessionWebSocketTask?
@@ -41,11 +42,60 @@ class ConnectionManager: NSObject, ObservableObject {
 
         // Check video storage on launch
         manageVideoStorage()
+
+        // Get IP Addresses
+        self.ipAddresses = getIPAddresses()
     }
 
     deinit {
         UserDefaults.standard.removeObserver(self, forKeyPath: "serverHost")
         UserDefaults.standard.removeObserver(self, forKeyPath: "verifyCertificate")
+    }
+
+    // MARK: - Network Info
+
+    private func getIPAddresses() -> [String: String] {
+        var addresses: [String: String] = [:]
+
+        // Get list of all interfaces on the local machine:
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return [:] }
+        guard let firstAddr = ifaddr else { return [:] }
+
+        // For each interface ...
+        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            let addr = ptr.pointee.ifa_addr.pointee
+
+            // Check for running IPv4, IPv6 interfaces. Skip the loopback interface.
+            if (flags & (IFF_UP|IFF_RUNNING|IFF_LOOPBACK)) == (IFF_UP|IFF_RUNNING) {
+                if addr.sa_family == UInt8(AF_INET) || addr.sa_family == UInt8(AF_INET6) {
+
+                    // Convert interface name to a String
+                    var name = String(cString: ptr.pointee.ifa_name)
+
+                    // Convert the interface address to a human readable string
+                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if (getnameinfo(ptr.pointee.ifa_addr, socklen_t(addr.sa_len), &hostname, socklen_t(hostname.count),
+                                    nil, socklen_t(0), NI_NUMERICHOST) == 0) {
+                        let address = String(cString: hostname)
+
+                        // Clean up IPv6 interface index if present (e.g. fe80::...%en0)
+                        let cleanAddress = address.components(separatedBy: "%").first ?? address
+
+                        // Prefer IPv4 or keep both? Plan said stick to IPv4 or show both.
+                        // Let's filter for just IPv4 for now as it's most common for this use case,
+                        // unless user explicitly asked for all. User said "assigned IP address whether ethernet or wifi".
+                        // Usually local debugging is IPv4. Let's start with IPv4.
+                        if addr.sa_family == UInt8(AF_INET) {
+                             addresses[name] = cleanAddress
+                        }
+                    }
+                }
+            }
+        }
+        freeifaddrs(ifaddr)
+        return addresses
     }
 
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {

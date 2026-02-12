@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage("deviceName") private var deviceName: String = ""
     @State private var displayText: String = "Awaiting remote configuration from server..."
     @State private var selectedEndpoint: NWEndpoint?
+    @State private var showingInterfaces: Bool = false
 
     init() {
         // Set default deviceName from UIDevice if not already set
@@ -33,6 +34,16 @@ struct SettingsView: View {
                             .multilineTextAlignment(.trailing)
                             .autocapitalization(.words)
                             .textInputAutocapitalization(.words)
+                    }
+
+                    if !connectionManager.ipAddresses.isEmpty {
+                        HStack {
+                            Text("Device Interfaces")
+                            Spacer()
+                            Button("Interfaces") {
+                                showingInterfaces = true
+                            }
+                        }
                     }
                 }
 
@@ -138,6 +149,26 @@ struct SettingsView: View {
                let jsonData = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted),
                let jsonString = String(data: jsonData, encoding: .utf8) {
                 displayText = "Received Client Config:\n\(jsonString)"
+            }
+        }
+        .sheet(isPresented: $showingInterfaces) {
+            NavigationView {
+                List {
+                    ForEach(connectionManager.ipAddresses.sorted(by: { $0.key < $1.key }), id: \.key) { interface, ip in
+                        HStack {
+                            Text(interface)
+                            Spacer()
+                            Text(ip)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+                .navigationTitle("Device Interfaces")
+                .toolbar {
+                    Button("Done") {
+                        showingInterfaces = false
+                    }
+                }
             }
         }
     }
