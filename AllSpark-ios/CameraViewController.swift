@@ -646,6 +646,47 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
             if let url = savedURL {
                print("Chunk saved: \(url.lastPathComponent)")
+
+               let endTime = Date().timeIntervalSince1970
+               let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
+               let timestampStr = parts.last ?? ""
+               let startTime = Double(timestampStr) ?? endTime
+               let camera = parts.count > 2 ? parts[parts.count - 2] : "unknown" // "front" or "back"
+               let format = url.pathExtension
+
+               DispatchQueue.global(qos: .utility).async {
+                   var size: Int64 = 0
+                   if let attr = try? FileManager.default.attributesOfItem(atPath: url.path) {
+                       size = attr[.size] as? Int64 ?? 0
+                   }
+
+                   let asset = AVAsset(url: url)
+                   var fps: Double = 30.0
+                   var width: Double = 0
+                   var height: Double = 0
+
+                   if let track = asset.tracks(withMediaType: .video).first {
+                       fps = Double(track.nominalFrameRate)
+                       let tSize = track.naturalSize.applying(track.preferredTransform)
+                       width = Double(abs(Int(tSize.width)))
+                       height = Double(abs(Int(tSize.height)))
+                   }
+
+                   let dimensions: [String: Double] = [
+                       "width": width,
+                       "height": height
+                   ]
+
+                   ConnectionManager.shared.sendChunkSavedMessage(
+                       startTime: startTime,
+                       endTime: endTime,
+                       camera: camera,
+                       size: size,
+                       format: format,
+                       fps: fps,
+                       dimensions: dimensions
+                   )
+               }
             }
 
             self.recordingStateLock.lock()

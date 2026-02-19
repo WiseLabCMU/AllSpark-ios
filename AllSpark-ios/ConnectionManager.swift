@@ -458,6 +458,35 @@ class ConnectionManager: NSObject, ObservableObject {
 
     // MARK: - Video Storage Management
 
+    func sendChunkSavedMessage(startTime: Double, endTime: Double, camera: String, size: Int64, format: String, fps: Double, dimensions: [String: Double]) {
+        uploadQueue.async { [weak self] in
+            guard let self = self, self.isConnected, let task = self.webSocketTask else { return }
+
+            let message: [String: Any] = [
+                "type": "chunkSaved",
+                "startTime": startTime,
+                "endTime": endTime,
+                "camera": camera,
+                "size": size,
+                "format": format,
+                "fps": fps,
+                "dimensions": dimensions
+            ]
+
+            if let jsonData = try? JSONSerialization.data(withJSONObject: message, options: []),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                let wsMessage = URLSessionWebSocketTask.Message.string(jsonString)
+                task.send(wsMessage) { error in
+                    if let error = error {
+                        print("Failed to send chunkSaved message: \(error)")
+                    } else {
+                        print("Sent chunkSaved message for \(camera) camera.")
+                    }
+                }
+            }
+        }
+    }
+
     func manageVideoStorage() {
         DispatchQueue.global(qos: .background).async { [weak self] in
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
