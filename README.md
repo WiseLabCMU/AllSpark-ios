@@ -2,6 +2,9 @@
 
 AllSpark system mobile app for iOS. This app provides real-time video capture, recording, and uploading capabilities with face detection and blurring features.
 
+> [!IMPORTANT]
+> The AllSpark system consists of this iOS client and the [AllSpark Edge Server](https://github.com/WiseLabCMU/AllSpark-edge-server). For compatibility reasons, please ensure that you run release versions of both repositories that share at least the same minor semantic version tag (e.g., `v0.3.x` of the iOS app with `v0.3.x` of the server).
+
 ## Features
 
 - **Camera Capture**: Real-time video capture from front or back camera
@@ -20,165 +23,11 @@ AllSpark system mobile app for iOS. This app provides real-time video capture, r
 - **SettingsView**: Network configuration, server discovery list, and connection diagnostics
 - **WebSocket Protocol**: Two-phase upload (metadata → binary data) & JSON command interface
 
-## WebSocket Communication
+## API & WebSocket Communication
 
-The iOS app establishes a WebSocket connection to a configured server for real-time video upload and command reception.
+The iOS app establishes HTTP and WebSocket connections to a configured server for real-time video upload and command reception.
 
-### Connection Setup
-
-```swift
-var serverHost = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost:8080"
-// URL is automatically converted to ws:// or wss:// protocol
-```
-
-### Sending Messages to Server
-
-#### 1. Video Upload - Metadata Message (String/JSON)
-
-**Sent when**: User selects a video file to upload
-
-**Format (MP4):**
-```json
-{
-  "filename": "video.mp4",
-  "filesize": 1048576,
-  "mimetype": "video/mp4"
-}
-```
-
-**Format (MOV):**
-```json
-{
-  "filename": "video.mov",
-  "filesize": 1048576,
-  "mimetype": "video/quicktime"
-}
-```
-
-**Purpose**: Informs the server about the incoming video file before transmission
-
-**MIME Types**:
-- `"video/mp4"` - For MP4 format files
-- `"video/quicktime"` - For MOV format files
-
----
-
-#### 2. Video Upload - Binary Data Message
-
-**Sent immediately after**: Metadata message
-
-**Format**: Raw binary video file data (MP4 or MOV encoded video stream)
-
-**Purpose**: Transmits the actual video file content to the server
-
----
-
-### Receiving Messages from Server
-
-#### Status Message - Upload Confirmation
-
-**Received after**: Binary video data is successfully written to server
-
-**Format:**
-```json
-{
-  "status": "success",
-  "message": "Video uploaded successfully"
-}
-```
-
-**App Behavior**: Displays success alert to user
-
----
-
-#### Status Message - Upload Error
-
-**Received when**: Server encounters an error processing the upload
-
-**Format:**
-```json
-{
-  "status": "error",
-  "message": "Failed to write file"
-}
-```
-
-**App Behavior**: Displays error alert to user with error details
-
----
-
-#### Command Message - Request Upload Time Range
-
-**Format:**
-```json
-{
-  "command": "uploadTimeRange",
-  "message": "Optional additional context",
-  "startTime": 1700000000.0,
-  "endTime": 1700000060.0
-}
-```
-
-**Parameters:**
-- `command` (required): `"uploadTimeRange"` - Server requests client to upload video covering a specific range
-- `startTime` (required): Unix timestamp (seconds) for start of range
-- `endTime` (required): Unix timestamp (seconds) for end of range
-
-**App Behavior**:
-- Scans local recordings for files overlapping with the requested time range
-- Automatically uploads any matching files to the server
-- Ignores files that do not overlap the range
-
----
-
-#### Client Configuration Sync
-
-**Received when**: Client connects to server or server config changes
-
-**Format:**
-```json
-{
-  "type": "clientConfig",
-  "config": {
-    "videoFormat": "mp4",
-    "videoChunkDurationMs": 30000,
-    "videoBufferMaxMB": 16000
-  }
-}
-```
-
-**Parameters:**
-- `videoFormat`: Preferred video format (`"mp4"` or `"mov"`)
-- `videoChunkDurationMs`: Duration of each recording chunk in milliseconds
-- `videoBufferMaxMB`: Maximum storage space to use for video buffer (oldest files deleted when exceeded)
-
-**App Behavior**:
-- Updates local settings to match server configuration
-- Adjusts recording chunk size and storage limits dynamically
-
----
-
-#### Command Message - Server Instructions (Generic)
-
-**Format:**
-```json
-{
-  "command": "record",
-  "message": "Optional additional context or instructions"
-}
-```
-
-**Supported Commands:**
-- `"record"` - Server requests the client to start recording with optional duration and auto-upload
-  - Additional message context can be included
-  - App displays command notification to user
-
-**App Behavior**:
-- Parses the command type
-- Displays alert with command name and message
-- Unknown commands are logged but not actioned
-
----
+For complete documentation on the expected WebSocket message protocol, JSON command interfaces, and HTTP endpoints, please see the **[Endpoints Documentation](https://github.com/WiseLabCMU/AllSpark-edge-server/blob/master/docs/endpoints.md)** in the AllSpark Edge Server repository.
 
 ## Network Configuration
 
@@ -241,12 +90,7 @@ When a previously established server connection becomes unavailable:
 4. **Automatic Recovery**: The app automatically attempts to reconnect after 5 seconds, allowing the connection to be restored if the server comes back online
 5. **Continuous Attempts**: Automatic reconnection attempts continue until the connection is restored or the user navigates away from the camera view
 
-## HTTP Endpoints Used
 
-The app makes HTTP requests to the following endpoints:
-
-- **GET `/api/health`** - Health check during connection test
-  - Returns: `{ "status": "ok", "timestamp": "...", "uptime": ... }`
 
 ## Continuous Recording Workflow
 
