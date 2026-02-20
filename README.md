@@ -1,9 +1,9 @@
 # AllSpark-ios
 
-AllSpark system mobile app for iOS. This app provides real-time video capture, recording, and uploading capabilities with face detection and blurring features.
+AllSpark Edge mobile app for iOS. This app provides real-time video capture, recording, and uploading capabilities with face detection and blurring features.
 
 > [!IMPORTANT]
-> The AllSpark system consists of this iOS client and the [AllSpark Edge Server](https://github.com/WiseLabCMU/AllSpark-edge-server). For compatibility reasons, please ensure that you run release versions of both repositories that share at least the same minor semantic version tag (e.g., `v0.3.x` of the iOS app with `v0.3.x` of the server).
+> AllSpark Edge consists of this iOS client and the [AllSpark Edge Server](https://github.com/WiseLabCMU/AllSpark-edge-server). For compatibility reasons, please ensure that you run release versions of both repositories that share at least the same minor semantic version tag (e.g., `v0.3.x` of the iOS app with `v0.3.x` of the server).
 
 ## Features
 
