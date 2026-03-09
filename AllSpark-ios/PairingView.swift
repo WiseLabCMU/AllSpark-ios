@@ -224,3 +224,7 @@ class ScannerViewController: UIViewController {
         return .all
     }
 }
+
+#Preview {
+    PairingView(serverHost: .constant("localhost:8080"))
+}
