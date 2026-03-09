@@ -295,6 +295,11 @@ class ConnectionManager: NSObject, ObservableObject {
                         UserDefaults.standard.set(videoFormat, forKey: "videoFormat")
                     }
 
+                    // Forward communications policy to CommunicationsManager
+                    if let policy = config["communicationsPolicy"] as? [String: Bool] {
+                        CommunicationsManager.shared.applyPolicy(policy)
+                    }
+
                     // Trigger storage management
                     self.manageVideoStorage()
                     return

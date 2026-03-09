@@ -4,7 +4,7 @@ import Vision
 import CoreImage
 import Combine
 
-class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINavigationControllerDelegate {
+class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     // Camera session
     private var captureSession: AVCaptureSession!
@@ -43,7 +43,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
     // Display layer
     private var imageView: UIImageView!
     private var switchCameraButton: UIButton!
-    private var uploadButton: UIButton!
     private var timerLabel: UILabel!
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
@@ -56,7 +55,6 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
         setupImageView()
 
         setupSwitchCameraButton()
-        setupUploadButton()
         setupTimerLabel()
         setupConnectionStatusIcon()
         setupCamera()
@@ -127,28 +125,7 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 
     }
 
-    private func setupUploadButton() {
-        uploadButton = UIButton(type: .system)
-        uploadButton.translatesAutoresizingMaskIntoConstraints = false
-        if let image = UIImage(systemName: "square.and.arrow.up") {
-             uploadButton.setImage(image, for: .normal)
-        } else {
-            uploadButton.setTitle("Upload", for: .normal)
-        }
-        uploadButton.tintColor = .white
-        uploadButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        uploadButton.layer.cornerRadius = 25
-        uploadButton.addTarget(self, action: #selector(promptForUpload), for: .touchUpInside)
-
-        view.addSubview(uploadButton)
-
-        NSLayoutConstraint.activate([
-            uploadButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            uploadButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            uploadButton.widthAnchor.constraint(equalToConstant: 50),
-            uploadButton.heightAnchor.constraint(equalToConstant: 50)
-        ])
-    }
+    // Manual upload button removed for security — uploads are server-initiated only
 
     private var recordingIndicatorContainer: UIView!
 
@@ -1032,22 +1009,8 @@ class CameraViewController: UIViewController, UIDocumentPickerDelegate, UINaviga
 }
 
 extension CameraViewController {
-    @objc private func promptForUpload() {
-        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.movie], asCopy: true)
-        documentPicker.delegate = self
-        documentPicker.allowsMultipleSelection = false
-
-        // Set default directory to Documents
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        documentPicker.directoryURL = documentsPath
-
-        present(documentPicker, animated: true)
-    }
-
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let selectedFileURL = urls.first else { return }
-        uploadVideo(at: selectedFileURL)
-    }
+    // Manual upload (promptForUpload / documentPicker) removed for security.
+    // Uploads are server-initiated only via handleUploadTimeRange.
 
     private func uploadVideo(at fileURL: URL) {
         ConnectionManager.shared.uploadVideo(at: fileURL) { [weak self] result in

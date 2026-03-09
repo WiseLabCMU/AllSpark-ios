@@ -3,6 +3,7 @@ import Network
 
 struct SettingsView: View {
     @ObservedObject private var connectionManager = ConnectionManager.shared
+    @ObservedObject private var commsManager = CommunicationsManager.shared
     @AppStorage("serverHost") private var serverHost: String = ""
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
@@ -44,6 +45,32 @@ struct SettingsView: View {
                             Button("Interfaces") {
                                 showingInterfaces = true
                             }
+                        }
+                    }
+                }
+
+                Section(header: Text("Communications")) {
+                    HStack {
+                        Text("Active Transport")
+                        Spacer()
+                        Text(commsManager.activeTransport.capitalized)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Bluetooth")
+                        Spacer()
+                        Text(commsManager.isBluetoothOn ? "ON" : "OFF")
+                            .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
+                    }
+
+                    if let warning = commsManager.transportMismatchWarning {
+                        HStack(alignment: .top) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text(warning)
+                                .font(.footnote)
+                                .foregroundColor(.orange)
                         }
                     }
                 }

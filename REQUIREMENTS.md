@@ -46,6 +46,19 @@ graph TD
 | [SettingsView.swift](AllSpark-ios/SettingsView.swift) | Server host config, SSL toggle, discovered servers picker | `SettingsView`, `@AppStorage` bindings |
 | [PairingView.swift](AllSpark-ios/PairingView.swift) | QR code scanner for server pairing | `PairingView`, `QRScannerController`, `ScannerViewController` |
 | [CertificateVerificationDelegate.swift](AllSpark-ios/CertificateVerificationDelegate.swift) | Custom SSL pinning / trust override | `CertificateVerificationDelegate` |
+| [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) | Transport detection, Bluetooth monitoring, comms policy enforcement | `CommunicationsManager`, `applyPolicy`, `activeTransport`, `gateViolations` |
+
+## Data Security
+
+> **Goal**: AllSpark-iOS is a closed application. Generated content (video, audio) must only leave the device through approved communications channels to the edge server. No user-initiated or external-app file export is permitted.
+
+| ID | Requirement | Source |
+|----|-------------|--------|
+| REQ-SEC-001 | `UIFileSharingEnabled = NO` — recordings are not visible in Files.app or iTunes | [project.pbxproj](AllSpark-ios.xcodeproj/project.pbxproj) |
+| REQ-SEC-002 | `LSSupportsOpeningDocumentsInPlace = NO` — documents cannot be opened by other apps in place | [project.pbxproj](AllSpark-ios.xcodeproj/project.pbxproj) |
+| REQ-SEC-003 | No manual upload UI — video uploads are server-initiated only via `uploadTimeRange` command | [CameraViewController.swift](AllSpark-ios/CameraViewController.swift) |
+| REQ-SEC-004 | Communications policy gate blocks app interaction when server-disabled protocols are detected enabled | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift), [ContentView.swift](AllSpark-ios/ContentView.swift) |
+| REQ-SEC-005 | Transport mismatch warning when active transport conflicts with server communications policy | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift), [SettingsView.swift](AllSpark-ios/SettingsView.swift) |
 
 ## Feature Requirements
 
@@ -94,6 +107,17 @@ graph TD
 | REQ-iOS-042 | User alert on connection loss with Reconnect/Dismiss options | [CameraViewController.swift](AllSpark-ios/CameraViewController.swift) |
 | REQ-iOS-043 | SSL certificate verification toggle (for self-signed certs) | [SettingsView.swift](AllSpark-ios/SettingsView.swift), [CertificateVerificationDelegate.swift](AllSpark-ios/CertificateVerificationDelegate.swift) |
 
+### Communications Management
+
+| ID | Requirement | Source |
+|----|-------------|--------|
+| REQ-iOS-050 | Detect active network transport (Wi-Fi, Cellular, Ethernet, USB) via NWPathMonitor | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
+| REQ-iOS-051 | Monitor Bluetooth power state via CoreBluetooth; gate app interaction until Bluetooth is OFF | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
+| REQ-iOS-052 | Gate app interaction with full-screen blocker when Bluetooth or AirDrop violations are detected | [ContentView.swift](AllSpark-ios/ContentView.swift) |
+| REQ-iOS-053 | Warn user when active transport conflicts with server-sent `communicationsPolicy` (mismatch detection) | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
+| REQ-iOS-054 | Post-connection policy enforcement: prompt user to disable protocols the server policy requires off | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift), [ContentView.swift](AllSpark-ios/ContentView.swift) |
+| REQ-iOS-055 | UWB, NFC, and Satellite policy enforcement — deferred to future work (no public iOS API for runtime state detection) | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
+
 ## Connection & Upload Flow
 
 ```mermaid
@@ -127,3 +151,4 @@ sequenceDiagram
 - Privacy-preserving depth/mesh exports
 - Additional export format support
 - Multi-server management
+- UWB/NFC/Satellite runtime state detection and policy enforcement (pending public iOS API or cross-platform clients)

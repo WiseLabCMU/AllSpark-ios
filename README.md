@@ -14,7 +14,8 @@ For detailed architecture diagrams, feature requirements, and source file index,
 - Automatic storage management
 - Bonjour/mDNS server auto-discovery & QR code pairing
 - WebSocket connection with WSS/WS fallback and auto-reconnect
-- On-demand time-range upload via server command or user tap
+- Server-initiated time-range video upload
+- Server-managed communications policy with app-level enforcement
 - Configurable video format (MP4/MOV) synced from server
 
 ## API & WebSocket Communication
@@ -27,6 +28,9 @@ Icons are sourced from SF Symbols: https://github.com/andrewtavis/sf-symbols-onl
 
 ## Known Limitations
 
-- Video recordings are stored in the Documents directory
+- Video recordings are stored in the app sandbox Documents directory (not accessible to other apps or Files.app)
 - Both MP4 and MOV formats require decoder support on the receiving server
 - Face detection performance depends on device capabilities and lighting conditions
+- iOS does not expose APIs to programmatically disable Bluetooth, AirDrop, or other radios — the app detects state and guides the user to Settings
+- UWB, NFC, and Satellite policy enforcement is deferred (no public iOS API for runtime state detection)
+- Communications policy enforcement is app-level only; device-wide radio lockdown requires MDM
