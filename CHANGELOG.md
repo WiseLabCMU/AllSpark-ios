@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.3.0...v0.4.0) (2026-03-10)
+
+
+### Features
+
+* **comms:** add communications policy to define which channels should be allowed ([5dc4f94](https://github.com/WiseLabCMU/AllSpark-ios/commit/5dc4f94482060adfb7885628a5cc4af838820a3e))
+
+
+### Bug Fixes
+
+* correct several deprecated api calls ([2760f0c](https://github.com/WiseLabCMU/AllSpark-ios/commit/2760f0c6a64699ef27e246278bd1c707082d4901))
+* fix pairing view camera orientation ([e52152b](https://github.com/WiseLabCMU/AllSpark-ios/commit/e52152bc44edeee006061e73dce67dabe272277f))
+* repair failed autoconnect after qr code scan ([9ea4c8d](https://github.com/WiseLabCMU/AllSpark-ios/commit/9ea4c8dbae374a546ce16f88e34b0b672a217da1))
+
 ## [0.3.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.2.0...v0.3.0) (2026-02-20)
 
 
