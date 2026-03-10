@@ -30,7 +30,7 @@ platform :ios do
     # Upload to TestFlight with custom beta feedback email
     upload_to_testflight(
       skip_waiting_for_build_processing: true,
-      beta_feedback_email: "arenaxr@andrew.cmu.edu",
+      beta_app_feedback_email: "arenaxr@andrew.cmu.edu",
       changelog: "See CHANGELOG.md for details."
     )
   end
