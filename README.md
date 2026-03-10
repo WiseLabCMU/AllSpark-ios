@@ -7,6 +7,8 @@ AllSpark Edge mobile app for iOS — real-time video capture, recording, and upl
 
 For detailed architecture diagrams, feature requirements, and source file index, see **[REQUIREMENTS.md](REQUIREMENTS.md)**.
 
+See also: **[CHANGELOG.md](CHANGELOG.md)** · **[RELEASE.md](RELEASE.md)**
+
 ## Features
 
 - Camera capture (front/back) with continuous chunked recording
