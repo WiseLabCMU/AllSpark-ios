@@ -61,6 +61,10 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# Bundler
+vendor/bundle
+Gemfile.lock
+
 # MacOS
 
 # General
