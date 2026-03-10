@@ -158,30 +158,28 @@ class ScannerViewController: UIViewController {
         previewLayer.videoGravity = .resizeAspectFill
         view.layer.addSublayer(previewLayer)
 
-        // Fix preview orientation
-        if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(0) {
-            connection.videoRotationAngle = 0
-        }
-
+        updatePreviewOrientation()
         startScanning()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if let previewLayer = previewLayer {
-            previewLayer.frame = view.layer.bounds
+        previewLayer?.frame = view.layer.bounds
+        updatePreviewOrientation()
+    }
 
-            // Update orientation
-            if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(0) {
-                let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
-                switch orientation {
-                case .portrait: connection.videoRotationAngle = 0
-                case .portraitUpsideDown: connection.videoRotationAngle = 180
-                case .landscapeLeft: connection.videoRotationAngle = 90
-                case .landscapeRight: connection.videoRotationAngle = 270
-                default: connection.videoRotationAngle = 0
-                }
-            }
+    private func updatePreviewOrientation() {
+        guard let connection = previewLayer?.connection else { return }
+        let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
+        let angle: CGFloat = switch orientation {
+        case .portrait: 90
+        case .portraitUpsideDown: 270
+        case .landscapeLeft: 180
+        case .landscapeRight: 0
+        default: 90
+        }
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
         }
     }
 
