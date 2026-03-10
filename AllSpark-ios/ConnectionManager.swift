@@ -226,10 +226,8 @@ class ConnectionManager: NSObject, ObservableObject {
             webSocketTask = nil
         }
 
-        DispatchQueue.main.async {
-            self.isConnected = false
-            self.isAttemptingConnection = false
-        }
+        isConnected = false
+        isAttemptingConnection = false
         print("WebSocket disconnected")
     }
 
