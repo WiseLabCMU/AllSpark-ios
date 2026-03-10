@@ -117,7 +117,7 @@ struct SettingsView: View {
                              }
                          }
                          .pickerStyle(.menu)
-                         .onChange(of: selectedEndpoint) { newEndpoint in
+                         .onChange(of: selectedEndpoint) { _, newEndpoint in
                               if let endpoint = newEndpoint,
                                  let result = connectionManager.discoveredServers.first(where: { $0.endpoint == endpoint }) {
                                   connectionManager.connectToDiscoveredServer(result)

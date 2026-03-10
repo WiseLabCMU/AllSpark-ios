@@ -159,8 +159,8 @@ class ScannerViewController: UIViewController {
         view.layer.addSublayer(previewLayer)
 
         // Fix preview orientation
-        if let connection = previewLayer.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+        if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(0) {
+            connection.videoRotationAngle = 0
         }
 
         startScanning()
@@ -172,14 +172,14 @@ class ScannerViewController: UIViewController {
             previewLayer.frame = view.layer.bounds
 
             // Update orientation
-            if let connection = previewLayer.connection, connection.isVideoOrientationSupported {
+            if let connection = previewLayer.connection, connection.isVideoRotationAngleSupported(0) {
                 let orientation = view.window?.windowScene?.interfaceOrientation ?? .portrait
                 switch orientation {
-                case .portrait: connection.videoOrientation = .portrait
-                case .portraitUpsideDown: connection.videoOrientation = .portraitUpsideDown
-                case .landscapeLeft: connection.videoOrientation = .landscapeLeft
-                case .landscapeRight: connection.videoOrientation = .landscapeRight
-                default: connection.videoOrientation = .portrait
+                case .portrait: connection.videoRotationAngle = 0
+                case .portraitUpsideDown: connection.videoRotationAngle = 180
+                case .landscapeLeft: connection.videoRotationAngle = 90
+                case .landscapeRight: connection.videoRotationAngle = 270
+                default: connection.videoRotationAngle = 0
                 }
             }
         }

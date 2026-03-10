@@ -72,7 +72,7 @@ class ConnectionManager: NSObject, ObservableObject {
                 if addr.sa_family == UInt8(AF_INET) || addr.sa_family == UInt8(AF_INET6) {
 
                     // Convert interface name to a String
-                    var name = String(cString: ptr.pointee.ifa_name)
+                    let name = String(cString: ptr.pointee.ifa_name)
 
                     // Convert the interface address to a human readable string
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
@@ -509,7 +509,7 @@ class ConnectionManager: NSObject, ObservableObject {
                 let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey, .fileSizeKey], options: .skipsHiddenFiles)
 
                 // Filter for video files
-                var videoFiles = fileURLs.filter { $0.pathExtension == "mp4" || $0.pathExtension == "mov" }
+                let videoFiles = fileURLs.filter { $0.pathExtension == "mp4" || $0.pathExtension == "mov" }
 
                 // Calculate total size
                 var totalSize: Int64 = 0

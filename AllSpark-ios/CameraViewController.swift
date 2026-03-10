@@ -637,32 +637,38 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                        size = attr[.size] as? Int64 ?? 0
                    }
 
-                   let asset = AVAsset(url: url)
+                   let asset = AVURLAsset(url: url)
                    var fps: Double = 30.0
                    var width: Double = 0
                    var height: Double = 0
 
-                   if let track = asset.tracks(withMediaType: .video).first {
-                       fps = Double(track.nominalFrameRate)
-                       let tSize = track.naturalSize.applying(track.preferredTransform)
-                       width = Double(abs(Int(tSize.width)))
-                       height = Double(abs(Int(tSize.height)))
+                   Task {
+                       if let tracks = try? await asset.loadTracks(withMediaType: .video),
+                          let track = tracks.first {
+                           fps = Double(try await track.load(.nominalFrameRate))
+                           let naturalSize = try await track.load(.naturalSize)
+                           let preferredTransform = try await track.load(.preferredTransform)
+                           let tSize = naturalSize.applying(preferredTransform)
+                           width = Double(abs(Int(tSize.width)))
+                           height = Double(abs(Int(tSize.height)))
+                       }
+
+                       let dimensions: [String: Double] = [
+                           "width": width,
+                           "height": height
+                       ]
+
+                       await ConnectionManager.shared.sendChunkSavedMessage(
+                           startTime: startTime,
+                           endTime: endTime,
+                           camera: camera,
+                           size: size,
+                           format: format,
+                           fps: fps,
+                           dimensions: dimensions
+                       )
                    }
 
-                   let dimensions: [String: Double] = [
-                       "width": width,
-                       "height": height
-                   ]
-
-                   ConnectionManager.shared.sendChunkSavedMessage(
-                       startTime: startTime,
-                       endTime: endTime,
-                       camera: camera,
-                       size: size,
-                       format: format,
-                       fps: fps,
-                       dimensions: dimensions
-                   )
                }
             }
 
