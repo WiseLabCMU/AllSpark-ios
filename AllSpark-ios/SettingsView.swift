@@ -47,35 +47,17 @@ struct SettingsView: View {
                             }
                         }
                     }
-                }
-
-                Section(header: Text("Communications")) {
-                    HStack {
-                        Text("Active Transport")
-                        Spacer()
-                        Text(commsManager.activeTransport.capitalized)
-                            .foregroundColor(.secondary)
-                    }
 
                     HStack {
-                        Text("Bluetooth")
+                        Text("Permissions")
                         Spacer()
-                        Text(commsManager.isBluetoothOn ? "ON" : "OFF")
-                            .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
-                    }
-
-                    if let warning = commsManager.transportMismatchWarning {
-                        HStack(alignment: .top) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                            Text(warning)
-                                .font(.footnote)
-                                .foregroundColor(.orange)
+                        Button("Edit Permissions") {
+                            openAppSettings()
                         }
                     }
                 }
 
-                Section(header: Text("Server")) {
+                Section(header: Text("Server & Connection")) {
                     HStack {
                         if connectionManager.isConnected {
                             Text("Server Host ") +
@@ -104,7 +86,6 @@ struct SettingsView: View {
                             .autocorrectionDisabled(true)
                             .textInputAutocapitalization(.never)
                     }
-
 
                     if !connectionManager.discoveredServers.isEmpty {
                         Picker("Servers Discovered", selection: $selectedEndpoint) {
@@ -140,11 +121,9 @@ struct SettingsView: View {
                     }
 
                     Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
-                }
 
-                Section(header: Text("Actions")) {
                     HStack {
-                        Text("WebSocket ")
+                        Text("WebSocket")
                         Spacer()
                         Button(action: {
                             if connectionManager.isConnected {
@@ -159,10 +138,26 @@ struct SettingsView: View {
                     }
 
                     HStack {
-                        Text("Permissions: Local Network, Camera, Microphone")
+                        Text("Active Transport")
                         Spacer()
-                        Button("Edit Permissions") {
-                            openAppSettings()
+                        Text(commsManager.activeTransport.capitalized)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Bluetooth")
+                        Spacer()
+                        Text(commsManager.isBluetoothOn ? "ON" : "OFF")
+                            .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
+                    }
+
+                    if let warning = commsManager.transportMismatchWarning {
+                        HStack(alignment: .top) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text(warning)
+                                .font(.footnote)
+                                .foregroundColor(.orange)
                         }
                     }
                 }
