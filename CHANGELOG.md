@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.4.0...v0.4.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* update release please to latest ([e9cc2ad](https://github.com/WiseLabCMU/AllSpark-ios/commit/e9cc2add1ba7a9a946b5175342d57167d9259587))
+
 ## [0.4.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.3.0...v0.4.0) (2026-03-10)
 
 
