@@ -21,6 +21,7 @@ class ConnectionManager: NSObject, ObservableObject {
 
     // Internal properties
     private var webSocketTask: URLSessionWebSocketTask?
+    private var webSocketSession: URLSession?
     private var webSocketURL: URL?
 
     private var connectionAttemptTimer: Timer?
@@ -149,9 +150,14 @@ class ConnectionManager: NSObject, ObservableObject {
         }
 
         let verifyCertificate = UserDefaults.standard.bool(forKey: "verifyCertificate")
+
+        // Invalidate previous session to prevent URLSession+delegate retain cycle leak
+        webSocketSession?.invalidateAndCancel()
+
         let config = URLSessionConfiguration.default
         let delegate = CertificateVerificationDelegate(verifyCertificate: verifyCertificate)
         let urlSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        self.webSocketSession = urlSession
         let task = urlSession.webSocketTask(with: wsURL)
 
         self.webSocketTask = task
@@ -235,16 +241,21 @@ class ConnectionManager: NSObject, ObservableObject {
         let deviceName = UIDevice.current.name
         var customDeviceName = UserDefaults.standard.string(forKey: "deviceName") ?? deviceName
         let customName = UserDefaults.standard.string(forKey: "clientDisplayName")
-        
-        var nonce = UserDefaults.standard.string(forKey: "clientNonce")
-        if nonce == nil {
-            nonce = String(format: "%04d", Int.random(in: 1000...9999))
-            UserDefaults.standard.set(nonce, forKey: "clientNonce")
-        }
-        
-        let nonceStr = nonce!
-        if !customDeviceName.hasSuffix("-\(nonceStr)") {
-            customDeviceName = "\(customDeviceName)-\(nonceStr)"
+
+        // Ensure the device name contains at least 3 consecutive digits for
+        // collision avoidance. Users may freely edit their device name — we
+        // only auto-append a nonce when the name lacks sufficient numeric
+        // uniqueness. The nonce is persisted so it remains stable across
+        // sessions until the user provides their own digits.
+        let hasThreeDigits = customDeviceName.range(of: "\\d{3,}", options: .regularExpression) != nil
+
+        if !hasThreeDigits {
+            var nonce = UserDefaults.standard.string(forKey: "clientNonce")
+            if nonce == nil {
+                nonce = String(format: "%03d", Int.random(in: 100...999))
+                UserDefaults.standard.set(nonce, forKey: "clientNonce")
+            }
+            customDeviceName = "\(customDeviceName)-\(nonce!)"
             UserDefaults.standard.set(customDeviceName, forKey: "deviceName")
         }
 
@@ -393,7 +404,7 @@ class ConnectionManager: NSObject, ObservableObject {
                         if UserDefaults.standard.string(forKey: "serverHost") != serverAddress {
                             UserDefaults.standard.set(serverAddress, forKey: "serverHost")
                             // The observer on UserDefaults will automatically trigger a reconnection
-                        } else if !self!.isConnected && !self!.isAttemptingConnection {
+                        } else if self?.isConnected == false && self?.isAttemptingConnection == false {
                             // If host matches but we aren't connected, trigger connection
                              self?.connect()
                         }
@@ -546,6 +557,14 @@ class ConnectionManager: NSObject, ObservableObject {
                             try FileManager.default.removeItem(at: file.url)
                             totalSize -= file.size
                             print("Deleted old video to free space: \(file.url.lastPathComponent)")
+
+                            // Clean up companion timestamps file
+                            let txtName = file.url.lastPathComponent
+                                .replacingOccurrences(of: "chunk_", with: "timestamps_")
+                                .replacingOccurrences(of: ".mp4", with: ".txt")
+                                .replacingOccurrences(of: ".mov", with: ".txt")
+                            let txtURL = file.url.deletingLastPathComponent().appendingPathComponent(txtName)
+                            try? FileManager.default.removeItem(at: txtURL)
                         } else {
                             break
                         }
