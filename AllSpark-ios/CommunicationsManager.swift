@@ -174,6 +174,7 @@ class CommunicationsManager: NSObject, ObservableObject, CBCentralManagerDelegat
         } else {
             // Un-instantiate to ensure no background scanning occurs
             bluetoothManager = nil
+            isBluetoothOn = false
         }
         
         evaluatePolicy()
