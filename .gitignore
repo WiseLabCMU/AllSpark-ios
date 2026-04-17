@@ -72,8 +72,7 @@ Gemfile.lock
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[
-]
+Icon?
 
 # Thumbnails
 ._*
