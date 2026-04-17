@@ -87,7 +87,7 @@ graph TD
 | REQ-iOS-021 | `clientInfo` identification sent on connect | [ConnectionManager.swift#sendClientInfo](AllSpark-ios/ConnectionManager.swift) |
 | REQ-iOS-022 | Receive and apply `clientConfig` from server | [ConnectionManager.swift#receiveWebSocketMessage](AllSpark-ios/ConnectionManager.swift) |
 | REQ-iOS-023 | Two-phase upload: JSON metadata → binary data | [ConnectionManager.swift#uploadFile](AllSpark-ios/ConnectionManager.swift) |
-| REQ-iOS-024 | On-demand upload: user tap **or** server `uploadTimeRange` command | [CameraViewController.swift#handleRemoteCommand](AllSpark-ios/CameraViewController.swift) |
+| REQ-iOS-024 | Server-initiated upload via `uploadTimeRange` command | [CameraViewController.swift#handleRemoteCommand](AllSpark-ios/CameraViewController.swift) |
 | REQ-iOS-025 | Notify server of `chunkSaved` events for agent relay | [ConnectionManager.swift](AllSpark-ios/ConnectionManager.swift) |
 
 ### Discovery & Pairing
@@ -112,7 +112,7 @@ graph TD
 | ID | Requirement | Source |
 |----|-------------|--------|
 | REQ-iOS-050 | Detect active network transport (Wi-Fi, Cellular, Ethernet, USB) via NWPathMonitor | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
-| REQ-iOS-051 | Monitor Bluetooth power state via CoreBluetooth; gate app interaction until Bluetooth is OFF | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
+| REQ-iOS-051 | Monitor Bluetooth power state via CoreBluetooth only when server policy enables it; gate app interaction if Bluetooth is detected ON while policy requires OFF | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
 | REQ-iOS-052 | Gate app interaction with full-screen blocker when Bluetooth or AirDrop violations are detected | [ContentView.swift](AllSpark-ios/ContentView.swift) |
 | REQ-iOS-053 | Warn user when active transport conflicts with server-sent `communicationsPolicy` (mismatch detection) | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift) |
 | REQ-iOS-054 | Post-connection policy enforcement: prompt user to disable protocols the server policy requires off | [CommunicationsManager.swift](AllSpark-ios/CommunicationsManager.swift), [ContentView.swift](AllSpark-ios/ContentView.swift) |
@@ -152,6 +152,16 @@ sequenceDiagram
 - Additional export format support
 - Multi-server management
 - UWB/NFC/Satellite runtime state detection and policy enforcement (pending public iOS API or cross-platform clients)
+
+### Implemented (current release)
+
+| ID | Requirement | Source |
+|----|-------------|--------|
+| REQ-iOS-060 | Persistent 3-digit client nonce for collision avoidance; auto-appended if device name lacks 3+ consecutive digits | [ConnectionManager.swift#getClientDisplayName](AllSpark-ios/ConnectionManager.swift) |
+| REQ-iOS-061 | Frame-level NTP-synced timestamp metadata (`timestamps_*.txt`) generated per video chunk using hardware `CMTime` mapped to wall-clock | [CameraViewController.swift#recordVideoFrame](AllSpark-ios/CameraViewController.swift) |
+| REQ-iOS-062 | Capture modality overlay on recording screen showing active capture modes (Video, Audio) | [CameraViewController.swift#startRecordingChunk](AllSpark-ios/CameraViewController.swift) |
+| REQ-iOS-063 | Video chunks named `chunk_{epochMs}.mp4` where timestamp is the first frame's wall-clock time in milliseconds | [CameraViewController.swift#stopRecordingChunk](AllSpark-ios/CameraViewController.swift) |
+| REQ-iOS-064 | Companion `timestamps_*.txt` uploaded alongside video chunks during server-initiated uploads | [CameraViewController.swift#handleUploadTimeRange](AllSpark-ios/CameraViewController.swift) |
 
 ## Future Architecture: Full RGBD Export Recommendations
 Apple limits multi-track mixed media streams due to the encoding constraints of standard `.mp4`. However, `AllSpark-iOS` can support capturing unified reality volumes using the following standard workflows:
