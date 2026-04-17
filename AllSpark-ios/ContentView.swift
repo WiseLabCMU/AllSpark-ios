@@ -6,6 +6,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            // NOTE: Settings tab intentionally appears first during beta.
+            // Setup and pairing remain frequently accessed while the app is
+            // under active development. Re-evaluate tab order post-beta.
             TabView {
                 SettingsView()
                     .tabItem {
@@ -79,31 +82,17 @@ struct CommunicationsGateView: View {
                 .background(Color.white.opacity(0.1))
                 .cornerRadius(12)
 
-                HStack(spacing: 16) {
-                    Button(action: {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    }) {
-                        Label("Open Settings", systemImage: "gear")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                Button(action: {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
                     }
-
-                    Button(action: {
-                        // Force re-evaluation (BT state updates automatically via delegate,
-                        // but this provides user feedback that we're checking)
-                    }) {
-                        Label("Re-check", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.gray.opacity(0.3))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
+                }) {
+                    Label("Open Settings", systemImage: "gear")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
                 }
             }
             .padding(32)
