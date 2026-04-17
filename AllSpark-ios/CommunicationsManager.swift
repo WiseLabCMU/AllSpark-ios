@@ -37,7 +37,6 @@ class CommunicationsManager: NSObject, ObservableObject, CBCentralManagerDelegat
     private override init() {
         super.init()
         startPathMonitor()
-        startBluetoothMonitor()
 
         // Re-evaluate gate whenever transport or BT state changes
         $activeTransport
@@ -87,9 +86,11 @@ class CommunicationsManager: NSObject, ObservableObject, CBCentralManagerDelegat
 
     private func startBluetoothMonitor() {
         // showPowerAlert: false — we don't want the system prompt, just the state
-        bluetoothManager = CBCentralManager(delegate: self, queue: nil, options: [
-            CBCentralManagerOptionShowPowerAlertKey: false
-        ])
+        if bluetoothManager == nil {
+            bluetoothManager = CBCentralManager(delegate: self, queue: nil, options: [
+                CBCentralManagerOptionShowPowerAlertKey: false
+            ])
+        }
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -166,6 +167,15 @@ class CommunicationsManager: NSObject, ObservableObject, CBCentralManagerDelegat
     /// communicationsPolicy is received from the server.
     func applyPolicy(_ policy: [String: Bool]) {
         communicationsPolicy = policy
+        
+        // Only instantiate CentralManager if server policy explicitly allows/requests checking Bluetooth
+        if let btEnabled = policy["bluetooth"], btEnabled {
+            startBluetoothMonitor()
+        } else {
+            // Un-instantiate to ensure no background scanning occurs
+            bluetoothManager = nil
+        }
+        
         evaluatePolicy()
         evaluatePolicyEnforcement()
     }
