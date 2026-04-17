@@ -27,7 +27,14 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var assetWriter: AVAssetWriter?
     private var assetWriterInput: AVAssetWriterInput?
     private var audioWriterInput: AVAssetWriterInput?
+
     private var adapter: AVAssetWriterInputPixelBufferAdaptor?
+
+    // Add variables for timestamp tracking
+    private var frameTimestampsMs: [String] = []
+    private var chunkFirstFrameTimestampMs: Int?
+    private var frameCount: Int = 0
+
     private var isRecording = false
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
@@ -44,6 +51,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var imageView: UIImageView!
     private var switchCameraButton: UIButton!
     private var timerLabel: UILabel!
+    private var captureModesLabel: UILabel!
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
     private var connectionStatusIcon: UIButton!
@@ -165,6 +173,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         timerLabel.textColor = .red // User requested red
         timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold)
         stackView.addArrangedSubview(timerLabel)
+        
+        captureModesLabel = UILabel()
+        captureModesLabel.translatesAutoresizingMaskIntoConstraints = false
+        captureModesLabel.text = ""
+        captureModesLabel.textColor = .white
+        captureModesLabel.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        captureModesLabel.numberOfLines = 1
+        captureModesLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        stackView.addArrangedSubview(captureModesLabel)
 
         NSLayoutConstraint.activate([
             recordingIndicatorContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
@@ -316,14 +333,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         do {
             let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)
 
-            let recordingFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("recording_") && $0.pathExtension == "mp4" }
+            let recordingFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("chunk_") && $0.pathExtension == "mp4" }
 
             print("Found \(recordingFiles.count) recordings. Checking overlap with \(startTime) - \(endTime)")
 
             for fileURL in recordingFiles {
                 // Parse timestamp from filename: recording_Device_front_1700000000.mp4
                 let parts = fileURL.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
-                if let lastPart = parts.last, let fileTimestamp = Double(lastPart) {
+                if let lastPart = parts.last, let parsedTimestamp = Double(lastPart) {
+                    let fileTimestamp = parsedTimestamp / 1000.0
 
                     // We assume the file duration is approximately the chunk duration
                     // For better accuracy, we could use AVAsset, but that's heavier.
@@ -345,6 +363,13 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                     if fileTimestamp < endTime && fileEndTime > startTime {
                         print("Uploading file matching range: \(fileURL.lastPathComponent)")
                         uploadVideo(at: fileURL)
+
+                        let urlName = fileURL.deletingPathExtension().lastPathComponent
+                        let timestampsFilename = urlName.replacingOccurrences(of: "chunk_", with: "timestamps_") + ".txt"
+                        let timestampsURL = fileURL.deletingLastPathComponent().appendingPathComponent(timestampsFilename)
+                        if FileManager.default.fileExists(atPath: timestampsURL.path) {
+                            uploadVideo(at: timestampsURL)
+                        }
                     }
                 }
             }
@@ -509,12 +534,22 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 recordingStateLock.lock()
                 isRecording = true
                 sessionAtSourceTime = nil
+                chunkFirstFrameTimestampMs = nil
+                frameTimestampsMs.removeAll()
+                frameCount = 0
                 recordingStateLock.unlock()
 
                 print("Started recording chunk: \(videoName)")
 
+                // Check capture modes
+                var modes: [String] = []
+                if self.assetWriterInput != nil { modes.append("Video") }
+                if self.audioWriterInput != nil { modes.append("Audio") }
+                let modesText = "Capturing: " + modes.joined(separator: " + ")
+
                 // Reset UI Timer for new chunk
                 DispatchQueue.main.async { [weak self] in
+                    self?.captureModesLabel.text = modesText
                     self?.recordingDuration = 0
                     self?.updateTimerDisplay()
                     self?.recordingIndicatorContainer.isHidden = false
@@ -569,6 +604,9 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         recordingTimer?.invalidate()
         recordingTimer = nil
         recordingIndicatorContainer.isHidden = true
+        DispatchQueue.main.async {
+            self.captureModesLabel.text = ""
+        }
 
         stopRecordingChunk(completion: nil)
     }
@@ -613,6 +651,9 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         // We need to capture the URL locally before nil-ing out
         let savedURL = videoURL
 
+        let chunkTimeMs = chunkFirstFrameTimestampMs ?? Int(Date().timeIntervalSince1970 * 1000)
+        let timestampsData = frameTimestampsMs.joined(separator: "\n")
+
         writer.finishWriting { [weak self] in
             print("Finish writing completion block entered.")
             guard let self = self else {
@@ -622,22 +663,41 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             }
 
             if let url = savedURL {
-               print("Chunk saved: \(url.lastPathComponent)")
+               // Rename the file to chunk_{timestamp}.mp4
+               let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+               let format = url.pathExtension
+               let newFilename = "chunk_\(chunkTimeMs).\(format)"
+               let finalURL = documentsPath.appendingPathComponent(newFilename)
+               
+               try? FileManager.default.removeItem(at: finalURL)
+               do {
+                   try FileManager.default.moveItem(at: url, to: finalURL)
+               } catch {
+                   print("Error renaming video chunk: \(error)")
+               }
+               
+               // Write timestamps file
+               let timestampsFilename = "timestamps_\(chunkTimeMs).txt"
+               let timestampsURL = documentsPath.appendingPathComponent(timestampsFilename)
+               try? timestampsData.write(to: timestampsURL, atomically: true, encoding: .utf8)
+
+               print("Chunk saved: \(newFilename) and \(timestampsFilename)")
 
                let endTime = Date().timeIntervalSince1970
+               let startTime = Double(chunkTimeMs) / 1000.0
+               // Determine camera from original name since we drop it in final name
                let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
-               let timestampStr = parts.last ?? ""
-               let startTime = Double(timestampStr) ?? endTime
                let camera = parts.count > 2 ? parts[parts.count - 2] : "unknown" // "front" or "back"
-               let format = url.pathExtension
+               
+               let urlToProcess = finalURL
 
                DispatchQueue.global(qos: .utility).async {
                    var size: Int64 = 0
-                   if let attr = try? FileManager.default.attributesOfItem(atPath: url.path) {
+                   if let attr = try? FileManager.default.attributesOfItem(atPath: urlToProcess.path) {
                        size = attr[.size] as? Int64 ?? 0
                    }
 
-                   let asset = AVURLAsset(url: url)
+                   let asset = AVURLAsset(url: urlToProcess)
                    var fps: Double = 30.0
                    var width: Double = 0
                    var height: Double = 0
@@ -978,6 +1038,13 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 return
             }
 
+            // Calculate wall-clock epoch timestamp in ms for this frame
+            let ntpTimeMs = Int((Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime + timestamp.seconds) * 1000)
+
+            if chunkFirstFrameTimestampMs == nil {
+                chunkFirstFrameTimestampMs = ntpTimeMs // The exact timestamp of the chunk
+            }
+
             if sessionAtSourceTime == nil {
                 print("Starting session at \(timestamp.seconds)")
                 sessionAtSourceTime = timestamp
@@ -985,6 +1052,10 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             }
 
             let success = adapter.append(buffer, withPresentationTime: timestamp)
+            if success {
+                frameTimestampsMs.append("\(frameCount) : \(ntpTimeMs)")
+                frameCount += 1
+            }
             if !success {
                 print("Failed to append buffer. Writer status: \(String(describing: assetWriter?.status.rawValue)) Error: \(String(describing: assetWriter?.error))")
             }
