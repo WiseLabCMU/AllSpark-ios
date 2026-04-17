@@ -338,7 +338,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             print("Found \(recordingFiles.count) recordings. Checking overlap with \(startTime) - \(endTime)")
 
             for fileURL in recordingFiles {
-                // Parse timestamp from filename: recording_Device_front_1700000000.mp4
+                // Parse timestamp from filename: chunk_{timestampMs}.mp4
                 let parts = fileURL.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
                 if let lastPart = parts.last, let parsedTimestamp = Double(lastPart) {
                     let fileTimestamp = parsedTimestamp / 1000.0
@@ -651,8 +651,10 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         // We need to capture the URL locally before nil-ing out
         let savedURL = videoURL
 
+        recordingStateLock.lock()
         let chunkTimeMs = chunkFirstFrameTimestampMs ?? Int(Date().timeIntervalSince1970 * 1000)
         let timestampsData = frameTimestampsMs.joined(separator: "\n")
+        recordingStateLock.unlock()
 
         writer.finishWriting { [weak self] in
             print("Finish writing completion block entered.")
@@ -1014,19 +1016,25 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         guard shouldRecord else { return }
 
-        // Render CIImage to CVPixelBuffer (expensive, outside lock)
+        // Use the adapter's pixel buffer pool when available to avoid
+        // per-frame heap allocation. Falls back to CVPixelBufferCreate.
         var pixelBuffer: CVPixelBuffer?
-        let attrs = [
-            kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue
-        ] as CFDictionary
+        if let pool = adapter?.pixelBufferPool {
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBuffer)
+        }
+        if pixelBuffer == nil {
+            let attrs = [
+                kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue
+            ] as CFDictionary
 
-        let width = Int(image.extent.width)
-        let height = Int(image.extent.height)
+            let width = Int(image.extent.width)
+            let height = Int(image.extent.height)
 
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs, &pixelBuffer)
+            CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs, &pixelBuffer)
+        }
 
-        if status == kCVReturnSuccess, let buffer = pixelBuffer {
+        if let buffer = pixelBuffer {
             context.render(image, to: buffer)
 
             // 2. Append (lock)
@@ -1060,7 +1068,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 print("Failed to append buffer. Writer status: \(String(describing: assetWriter?.status.rawValue)) Error: \(String(describing: assetWriter?.error))")
             }
         } else {
-            print("Failed to create CVPixelBuffer: \(status)")
+            print("Failed to create CVPixelBuffer")
         }
     }
 
