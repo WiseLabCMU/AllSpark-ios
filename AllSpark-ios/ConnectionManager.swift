@@ -233,8 +233,20 @@ class ConnectionManager: NSObject, ObservableObject {
 
     private func getClientDisplayName() -> String {
         let deviceName = UIDevice.current.name
-        let customDeviceName = UserDefaults.standard.string(forKey: "deviceName") ?? deviceName
+        var customDeviceName = UserDefaults.standard.string(forKey: "deviceName") ?? deviceName
         let customName = UserDefaults.standard.string(forKey: "clientDisplayName")
+        
+        var nonce = UserDefaults.standard.string(forKey: "clientNonce")
+        if nonce == nil {
+            nonce = String(format: "%04d", Int.random(in: 1000...9999))
+            UserDefaults.standard.set(nonce, forKey: "clientNonce")
+        }
+        
+        let nonceStr = nonce!
+        if !customDeviceName.hasSuffix("-\(nonceStr)") {
+            customDeviceName = "\(customDeviceName)-\(nonceStr)"
+            UserDefaults.standard.set(customDeviceName, forKey: "deviceName")
+        }
 
         if let customName = customName, !customName.isEmpty {
             return "\(customName) (\(customDeviceName))"
@@ -424,7 +436,8 @@ class ConnectionManager: NSObject, ObservableObject {
 
             let filename = fileURL.lastPathComponent
             let fileExtension = (filename as NSString).pathExtension.lowercased()
-            let mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
+            var mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
+            if fileExtension == "txt" { mimetype = "text/plain" }
 
             let metadata: [String: Any] = [
                 "type": "upload",
