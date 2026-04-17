@@ -147,8 +147,15 @@ struct SettingsView: View {
                     HStack {
                         Text("Bluetooth")
                         Spacer()
-                        Text(commsManager.isBluetoothOn ? "ON" : "OFF")
-                            .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
+                        if let policy = connectionManager.clientConfig?["communicationsPolicy"] as? [String: Bool],
+                           policy["bluetooth"] == true {
+                            // Bluetooth is being actively monitored by CommunicationsManager
+                            Text(commsManager.isBluetoothOn ? "ON" : "OFF")
+                                .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
+                        } else {
+                            Text("Not Monitored")
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     if let warning = commsManager.transportMismatchWarning {
