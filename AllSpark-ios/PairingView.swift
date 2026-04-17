@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 
 struct PairingView: View {
-    @Environment(\.presentationMode) var presentationMode
+    @Environment(\.dismiss) var dismiss
     @Binding var serverHost: String
     @State private var isScanning = true
     @State private var sessionError: String?
@@ -31,7 +31,7 @@ struct PairingView: View {
                     if cleanCode.contains(":") {
                         print("Updating server host to: \(cleanCode)")
                         serverHost = cleanCode
-                        presentationMode.wrappedValue.dismiss()
+                        dismiss()
                     } else {
                         print("Invalid format (missing port?): \(code)")
                         isScanning = true // Resume
@@ -65,7 +65,7 @@ struct PairingView: View {
             }
             .navigationBarTitle("Pair Server", displayMode: .inline)
             .navigationBarItems(leading: Button("Cancel") {
-                presentationMode.wrappedValue.dismiss()
+                dismiss()
             })
         }
     }
@@ -210,7 +210,9 @@ class ScannerViewController: UIViewController {
 
     func stopScanning() {
         if (captureSession?.isRunning == true) {
-            captureSession.stopRunning()
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.captureSession.stopRunning()
+            }
         }
     }
 
