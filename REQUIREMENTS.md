@@ -152,3 +152,10 @@ sequenceDiagram
 - Additional export format support
 - Multi-server management
 - UWB/NFC/Satellite runtime state detection and policy enforcement (pending public iOS API or cross-platform clients)
+
+## Future Architecture: Full RGBD Export Recommendations
+Apple limits multi-track mixed media streams due to the encoding constraints of standard `.mp4`. However, `AllSpark-iOS` can support capturing unified reality volumes using the following standard workflows:
+
+1. **Format**: Use `.mov` HEVC / H.265 files (not `.mp4`) to store depth tracks natively. Apple provides native parsing of depth using AVAsset without separate image sequences.
+2. **Buffer Encoding**: Use an `AVAssetWriterInputPixelBufferAdaptor` dedicated to a secondary track for 16-bit float depth matrices (`kCVPixelFormatType_DepthFloat16` and LiDAR output if available).
+3. **Session Coordination**: The `.mov` track must be explicitly marked as an Auxiliary Track (`AVAssetWriterInput.marksOutputTrackAsEnabled = false` optionally) so standard video players ignore it while specialized data parsers (like the ARENA Edge Server) can extract the exact timestamped depth map matching the color presentation time.
