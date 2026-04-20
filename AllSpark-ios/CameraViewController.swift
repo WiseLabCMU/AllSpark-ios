@@ -19,9 +19,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     // Image processing
     private let context = CIContext()
 
-    // Face detection
-    private var faceDetectionRequest: VNDetectFaceRectanglesRequest!
-    private var detectedFaces: [VNFaceObservation] = []
+    // Person segmentation
+    private var personSegmentationRequest: VNGeneratePersonSegmentationRequest!
+    private var personMaskBuffer: CVPixelBuffer?
+
+#if targetEnvironment(simulator)
+    private var simulatorPlayer: AVPlayer?
+    private var simulatorVideoOutput: AVPlayerItemVideoOutput?
+    private var simulatorDisplayLink: CADisplayLink?
+#endif
 
     // Video Recording
     private var assetWriter: AVAssetWriter?
@@ -66,7 +72,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         setupTimerLabel()
         setupConnectionStatusIcon()
         setupCamera()
-        setupFaceDetection()
+        setupPrivacyFiltering()
 
         // ConnectionManager is a singleton, so we just ensure it's connected and observe it
         ConnectionManager.shared.connect()
@@ -93,9 +99,14 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         stopRecording()
 
+#if targetEnvironment(simulator)
+        simulatorPlayer?.pause()
+        simulatorDisplayLink?.isPaused = true
+#else
         if let session = captureSession, session.isRunning {
-            session.stopRunning()
+             session.stopRunning()
         }
+#endif
 
         // Close WebSocket connection
         // WebSocket connection is now managed by ConnectionManager (background), so we don't disconnect here.
@@ -397,6 +408,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func configureCameraSwitch() {
+        guard captureSession != nil else { return }
         captureSession.beginConfiguration()
 
         // Remove existing video input
@@ -750,10 +762,11 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     private func setupCamera() {
         // Camera initialization will be handled in checkAndRequestPermissions
-        setupFaceDetection()
+        setupPrivacyFiltering()
     }
 
     private func setupAudioInput() {
+        guard captureSession != nil else { return }
         // Check if audio input already exists
         let audioInputExists = captureSession.inputs.contains { input in
             guard let deviceInput = input as? AVCaptureDeviceInput else { return false }
@@ -835,6 +848,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func initializeCameraIfNeeded() {
+#if targetEnvironment(simulator)
+        guard simulatorPlayer == nil else {
+            simulatorPlayer?.play()
+            simulatorDisplayLink?.isPaused = false
+            return
+        }
+        setupSimulatorVideoLoop()
+        return
+#else
         guard captureSession == nil else {
             // Camera already initialized, just start running
             if !captureSession.isRunning {
@@ -886,6 +908,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         // Reconnect WebSocket logic is now handled by ConnectionManager
 
+#endif
     }
 
     private func showPermissionDeniedAlert(permissionType: String) {
@@ -900,6 +923,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func updateVideoOrientation() {
+        guard captureSession != nil else { return }
         // Find the video input, not just the first input (which could be audio)
         if let videoCaptureDevice = captureSession.inputs.compactMap({ $0 as? AVCaptureDeviceInput }).first(where: { $0.device.hasMediaType(.video) }) {
             // Initialize RotationCoordinator if needed
@@ -935,60 +959,109 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         }
     }
 
-    private func setupFaceDetection() {
-        faceDetectionRequest = VNDetectFaceRectanglesRequest { [weak self] request, error in
-            guard let observations = request.results as? [VNFaceObservation] else {
-                return
-            }
-
-            self?.detectedFaces = observations
-        }
+    private func setupPrivacyFiltering() {
+        let request = VNGeneratePersonSegmentationRequest()
+        request.qualityLevel = .fast
+        request.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        self.personSegmentationRequest = request
     }
 
-    private func blurFaces(in ciImage: CIImage, faces: [VNFaceObservation]) -> CIImage {
-        var outputImage = ciImage
-        let imageSize = ciImage.extent.size
-
-        for face in faces {
-            // Convert normalized coordinates to image coordinates
-            // Vision uses normalized coordinates (0-1) with origin at bottom-left
-            let boundingBox = face.boundingBox
-
-            // Convert from Vision coordinates to CIImage coordinates
-            let x = boundingBox.origin.x * imageSize.width
-            let y = boundingBox.origin.y * imageSize.height
-            let width = boundingBox.width * imageSize.width
-            let height = boundingBox.height * imageSize.height
-
-            // Expand the box slightly for better coverage
-            let expansion: CGFloat = 0.3
-            let expandedX = max(0, x - width * expansion)
-            let expandedY = max(0, y - height * expansion)
-            let expandedWidth = min(imageSize.width - expandedX, width * (1 + 2 * expansion))
-            let expandedHeight = min(imageSize.height - expandedY, height * (1 + 2 * expansion))
-
-            let faceRect = CGRect(x: expandedX, y: expandedY, width: expandedWidth, height: expandedHeight)
-
-            // Create blur filter
-            if let blurFilter = CIFilter(name: "CIPixellate") {
-                // Crop the face region
-                let faceCrop = outputImage.cropped(to: faceRect)
-
-                blurFilter.setValue(faceCrop, forKey: kCIInputImageKey)
-                blurFilter.setValue(40.0, forKey: kCIInputScaleKey)
-
-                if let blurredOutput = blurFilter.outputImage {
-                    // The blur filter expands the image, so we need to crop it back
-                    let croppedBlur = blurredOutput.cropped(to: faceRect)
-
-                    // Composite the blurred face back onto the original image
-                    outputImage = croppedBlur.composited(over: outputImage)
+    private func applyPrivacyBlur(to image: CIImage) -> CIImage {
+        guard let maskBuffer = personMaskBuffer else { return image }
+        
+        let maskImage = CIImage(cvPixelBuffer: maskBuffer)
+        
+        // Ensure accurate bounding box alignment by scaling
+        let scaleX = image.extent.width / maskImage.extent.width
+        let scaleY = image.extent.height / maskImage.extent.height
+        let scaledMask = maskImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        
+        // Pixellate filter to anonymize
+        if let blurFilter = CIFilter(name: "CIPixellate") {
+            blurFilter.setValue(image, forKey: kCIInputImageKey)
+            blurFilter.setValue(40.0, forKey: kCIInputScaleKey)
+            
+            if let blurredImage = blurFilter.outputImage {
+                if let blendFilter = CIFilter(name: "CIBlendWithMask") {
+                    blendFilter.setValue(blurredImage, forKey: kCIInputImageKey)
+                    blendFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
+                    blendFilter.setValue(scaledMask, forKey: kCIInputMaskImageKey)
+                    
+                    if let output = blendFilter.outputImage {
+                        return output
+                    }
                 }
             }
         }
-
-        return outputImage
+        return image
     }
+
+#if targetEnvironment(simulator)
+    private func setupSimulatorVideoLoop() {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let videoURL = documentsPath.appendingPathComponent("demo_video.mp4")
+
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            DispatchQueue.main.async {
+                let alert = UIAlertController(title: "Simulator Video Missing", message: "Please drag 'demo_video.mp4' into the iOS Simulator's AllSpark-ios folder using the macOS Finder or Simulator Files app.", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(alert, animated: true)
+            }
+            return
+        }
+
+        let player = AVPlayer(url: videoURL)
+        player.actionAtItemEnd = .none
+
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ])
+        player.currentItem?.add(output)
+        
+        simulatorPlayer = player
+        simulatorVideoOutput = output
+        
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
+            player.seek(to: .zero)
+            player.play()
+        }
+
+        simulatorDisplayLink = CADisplayLink(target: self, selector: #selector(simulatorDisplayLinkFired))
+        simulatorDisplayLink?.add(to: .main, forMode: .common)
+        
+        player.play()
+    }
+
+    @objc private func simulatorDisplayLinkFired() {
+        guard let output = simulatorVideoOutput else { return }
+        let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())
+        guard output.hasNewPixelBuffer(forItemTime: itemTime) else { return }
+        
+        var presentationItemTime = CMTime.zero
+        guard let pixelBuffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &presentationItemTime) else { return }
+        
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        
+        let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
+        do {
+            try handler.perform([personSegmentationRequest])
+            if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                self.personMaskBuffer = result.pixelBuffer
+            }
+        } catch { }
+        
+        let processedImage = applyPrivacyBlur(to: ciImage)
+        
+        // Use monotonic host clock because video file will randomly jump to 0.0s causing AVAssetWriter to fail
+        let currentHostTime = CMClockGetTime(CMClockGetHostTimeClock())
+        recordVideoFrame(processedImage, timestamp: currentHostTime)
+        
+        if let cgImage = context.createCGImage(processedImage, from: processedImage.extent) {
+            let uiImage = UIImage(cgImage: cgImage)
+            self.imageView.image = uiImage
+        }
+    }
+#endif
 
     private func recordAudioFrame(_ sampleBuffer: CMSampleBuffer) {
         recordingStateLock.lock()
@@ -1128,17 +1201,20 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-        // Perform face detection
+        // Perform person segmentation
         let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
 
         do {
-            try handler.perform([faceDetectionRequest])
+            try handler.perform([personSegmentationRequest])
+            if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                self.personMaskBuffer = result.pixelBuffer
+            }
         } catch {
-            print("Failed to perform face detection: \(error)")
+            print("Failed to perform person segmentation: \(error)")
         }
 
-        // Apply blur to detected faces
-        let processedImage = blurFaces(in: ciImage, faces: detectedFaces)
+        // Apply blur to humans
+        let processedImage = applyPrivacyBlur(to: ciImage)
 
         // Record output
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
