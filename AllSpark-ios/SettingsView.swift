@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("serverHost") private var serverHost: String = ""
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
+    @AppStorage("privacyMode") private var privacyMode: String = "segmentation"
     @State private var displayText: String = "Awaiting remote configuration from server..."
     @State private var selectedEndpoint: NWEndpoint?
     @State private var showingInterfaces: Bool = false
@@ -166,6 +167,13 @@ struct SettingsView: View {
                                 .font(.footnote)
                                 .foregroundColor(.orange)
                         }
+                    }
+                }
+
+                Section(header: Text("Privacy Filter Mode")) {
+                    Picker("Mode", selection: $privacyMode) {
+                        Text("Person Segmentation (Default)").tag("segmentation")
+                        Text("Body Pose Detection (Limbs)").tag("pose")
                     }
                 }
             }

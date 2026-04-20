@@ -18,10 +18,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     // Image processing
     private let context = CIContext()
-
-    // Person segmentation
+    
+    // Privacy Filtering
+    private var privacyMode: String = "segmentation"
     private var personSegmentationRequest: VNGeneratePersonSegmentationRequest!
     private var personMaskBuffer: CVPixelBuffer?
+    
+    // Body Pose Detection
+    private var bodyPoseRequest: VNDetectHumanBodyPoseRequest!
+    private var detectedBodyPoses: [VNHumanBodyPoseObservation] = []
 
 #if targetEnvironment(simulator)
     private var simulatorPlayer: AVPlayer?
@@ -177,34 +182,42 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         iconView.contentMode = .scaleAspectFit
         stackView.addArrangedSubview(iconView)
 
+        // Text Stack View for Timer and Modes Label
+        let textStackView = UIStackView()
+        textStackView.translatesAutoresizingMaskIntoConstraints = false
+        textStackView.axis = .vertical
+        textStackView.spacing = 2
+        textStackView.alignment = .leading
+
         // Timer Label
         timerLabel = UILabel()
         timerLabel.translatesAutoresizingMaskIntoConstraints = false
         timerLabel.text = "00:00"
         timerLabel.textColor = .red // User requested red
         timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold)
-        stackView.addArrangedSubview(timerLabel)
-        
+        textStackView.addArrangedSubview(timerLabel)
+
         captureModesLabel = UILabel()
         captureModesLabel.translatesAutoresizingMaskIntoConstraints = false
         captureModesLabel.text = ""
         captureModesLabel.textColor = .white
-        captureModesLabel.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        captureModesLabel.font = UIFont.systemFont(ofSize: 11, weight: .medium)
         captureModesLabel.numberOfLines = 1
-        captureModesLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        stackView.addArrangedSubview(captureModesLabel)
+        textStackView.addArrangedSubview(captureModesLabel)
+
+        stackView.addArrangedSubview(textStackView)
 
         NSLayoutConstraint.activate([
             recordingIndicatorContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
             recordingIndicatorContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            // Height enough for padding
-            recordingIndicatorContainer.heightAnchor.constraint(equalToConstant: 36),
+            // Flex height based on content
+            recordingIndicatorContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
 
             // StackView constraints inside container with padding
             stackView.leadingAnchor.constraint(equalTo: recordingIndicatorContainer.leadingAnchor, constant: 10),
             stackView.trailingAnchor.constraint(equalTo: recordingIndicatorContainer.trailingAnchor, constant: -10),
-            stackView.topAnchor.constraint(equalTo: recordingIndicatorContainer.topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: recordingIndicatorContainer.bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: recordingIndicatorContainer.topAnchor, constant: 6),
+            stackView.bottomAnchor.constraint(equalTo: recordingIndicatorContainer.bottomAnchor, constant: -6),
 
             // Icon size
             iconView.widthAnchor.constraint(equalToConstant: 12),
@@ -491,8 +504,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         // Get camera position for filename
         let cameraPosition = currentCameraPosition == .front ? "front" : "back"
 
-        let timestamp = Date().timeIntervalSince1970
-        let videoName = "recording_\(deviceNameForFilename)_\(cameraPosition)_\(timestamp).\(fileExtension)"
+        let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+        let videoName = "tmp_recording_\(timestampMs).\(fileExtension)"
         videoURL = documentsPath.appendingPathComponent(videoName)
 
         guard let videoURL = videoURL else { return }
@@ -682,14 +695,14 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                let format = url.pathExtension
                let newFilename = "chunk_\(chunkTimeMs).\(format)"
                let finalURL = documentsPath.appendingPathComponent(newFilename)
-               
+
                try? FileManager.default.removeItem(at: finalURL)
                do {
                    try FileManager.default.moveItem(at: url, to: finalURL)
                } catch {
                    print("Error renaming video chunk: \(error)")
                }
-               
+
                // Write timestamps file
                let timestampsFilename = "timestamps_\(chunkTimeMs).txt"
                let timestampsURL = documentsPath.appendingPathComponent(timestampsFilename)
@@ -702,7 +715,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                // Determine camera from original name since we drop it in final name
                let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
                let camera = parts.count > 2 ? parts[parts.count - 2] : "unknown" // "front" or "back"
-               
+
                let urlToProcess = finalURL
 
                DispatchQueue.global(qos: .utility).async {
@@ -960,40 +973,88 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func setupPrivacyFiltering() {
-        let request = VNGeneratePersonSegmentationRequest()
-        request.qualityLevel = .fast
-        request.outputPixelFormat = kCVPixelFormatType_OneComponent8
-        self.personSegmentationRequest = request
+        self.privacyMode = UserDefaults.standard.string(forKey: "privacyMode") ?? "segmentation"
+        
+        let segRequest = VNGeneratePersonSegmentationRequest()
+        segRequest.qualityLevel = .accurate
+        self.personSegmentationRequest = segRequest
+        
+        self.bodyPoseRequest = VNDetectHumanBodyPoseRequest()
     }
 
     private func applyPrivacyBlur(to image: CIImage) -> CIImage {
-        guard let maskBuffer = personMaskBuffer else { return image }
-        
-        let maskImage = CIImage(cvPixelBuffer: maskBuffer)
-        
-        // Ensure accurate bounding box alignment by scaling
-        let scaleX = image.extent.width / maskImage.extent.width
-        let scaleY = image.extent.height / maskImage.extent.height
-        let scaledMask = maskImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-        
-        // Pixellate filter to anonymize
-        if let blurFilter = CIFilter(name: "CIPixellate") {
-            blurFilter.setValue(image, forKey: kCIInputImageKey)
-            blurFilter.setValue(40.0, forKey: kCIInputScaleKey)
+        if privacyMode == "segmentation" {
+            guard let maskBuffer = personMaskBuffer else { return image }
+            let maskImage = CIImage(cvPixelBuffer: maskBuffer)
             
-            if let blurredImage = blurFilter.outputImage {
-                if let blendFilter = CIFilter(name: "CIBlendWithMask") {
-                    blendFilter.setValue(blurredImage, forKey: kCIInputImageKey)
-                    blendFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
-                    blendFilter.setValue(scaledMask, forKey: kCIInputMaskImageKey)
-                    
-                    if let output = blendFilter.outputImage {
-                        return output
+            let scaleX = image.extent.width / maskImage.extent.width
+            let scaleY = image.extent.height / maskImage.extent.height
+            let scaledMask = maskImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            
+            if let blurFilter = CIFilter(name: "CIGaussianBlur") {
+                blurFilter.setValue(image, forKey: kCIInputImageKey)
+                blurFilter.setValue(30.0, forKey: kCIInputRadiusKey)
+                if let blurredImage = blurFilter.outputImage {
+                    let clampedBlur = blurredImage.cropped(to: image.extent)
+                    if let blendFilter = CIFilter(name: "CIBlendWithRedMask") {
+                        blendFilter.setValue(clampedBlur, forKey: kCIInputImageKey)
+                        blendFilter.setValue(image, forKey: kCIInputBackgroundImageKey)
+                        blendFilter.setValue(scaledMask, forKey: kCIInputMaskImageKey)
+                        if let output = blendFilter.outputImage { return output }
                     }
                 }
             }
+            return image
+        } else {
+            var outputImage = image
+            let imageSize = image.extent.size
+
+            for pose in detectedBodyPoses {
+                // Find bounding box for all confident body joints (like ankles, knees)
+                guard let points = try? pose.recognizedPoints(.all) else { continue }
+                var minX: CGFloat = 1.0, minY: CGFloat = 1.0
+                var maxX: CGFloat = 0.0, maxY: CGFloat = 0.0
+                var validPoints = 0
+
+                for (_, point) in points where point.confidence > 0.2 {
+                    minX = min(minX, point.location.x)
+                    minY = min(minY, point.location.y)
+                    maxX = max(maxX, point.location.x)
+                    maxY = max(maxY, point.location.y)
+                    validPoints += 1
+                }
+
+                guard validPoints > 0 else { continue }
+
+                let x = minX * imageSize.width
+                let y = minY * imageSize.height
+                let width = (maxX - minX) * imageSize.width
+                let height = (maxY - minY) * imageSize.height
+
+                // Expand the box slightly for full coverage of the limbs
+                let expansion: CGFloat = 0.5
+                let expandedX = max(0, x - width * expansion)
+                let expandedY = max(0, y - height * expansion)
+                let expandedWidth = min(imageSize.width - expandedX, width * (1 + 2 * expansion))
+                let expandedHeight = min(imageSize.height - expandedY, height * (1 + 2 * expansion))
+
+                let poseRect = CGRect(x: expandedX, y: expandedY, width: expandedWidth, height: expandedHeight)
+
+                // Blur the bounding box
+                if let blurFilter = CIFilter(name: "CIGaussianBlur") {
+                    let poseCrop = outputImage.cropped(to: poseRect)
+                    blurFilter.setValue(poseCrop, forKey: kCIInputImageKey)
+                    blurFilter.setValue(30.0, forKey: kCIInputRadiusKey)
+
+                    if let blurredOutput = blurFilter.outputImage {
+                        let croppedBlur = blurredOutput.cropped(to: poseRect)
+                        outputImage = croppedBlur.composited(over: outputImage)
+                    }
+                }
+            }
+
+            return outputImage
         }
-        return image
     }
 
 #if targetEnvironment(simulator)
@@ -1017,10 +1078,10 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ])
         player.currentItem?.add(output)
-        
+
         simulatorPlayer = player
         simulatorVideoOutput = output
-        
+
         NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
             player.seek(to: .zero)
             player.play()
@@ -1028,7 +1089,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         simulatorDisplayLink = CADisplayLink(target: self, selector: #selector(simulatorDisplayLinkFired))
         simulatorDisplayLink?.add(to: .main, forMode: .common)
-        
+
         player.play()
     }
 
@@ -1036,26 +1097,31 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         guard let output = simulatorVideoOutput else { return }
         let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())
         guard output.hasNewPixelBuffer(forItemTime: itemTime) else { return }
-        
+
         var presentationItemTime = CMTime.zero
         guard let pixelBuffer = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &presentationItemTime) else { return }
-        
+
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        
+
         let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
         do {
-            try handler.perform([personSegmentationRequest])
-            if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
-                self.personMaskBuffer = result.pixelBuffer
+            if privacyMode == "segmentation" {
+                try handler.perform([personSegmentationRequest])
+                if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                    self.personMaskBuffer = result.pixelBuffer
+                }
+            } else {
+                try handler.perform([bodyPoseRequest])
+                self.detectedBodyPoses = bodyPoseRequest.results ?? []
             }
         } catch { }
-        
+
         let processedImage = applyPrivacyBlur(to: ciImage)
-        
+
         // Use monotonic host clock because video file will randomly jump to 0.0s causing AVAssetWriter to fail
         let currentHostTime = CMClockGetTime(CMClockGetHostTimeClock())
         recordVideoFrame(processedImage, timestamp: currentHostTime)
-        
+
         if let cgImage = context.createCGImage(processedImage, from: processedImage.extent) {
             let uiImage = UIImage(cgImage: cgImage)
             self.imageView.image = uiImage
@@ -1201,16 +1267,21 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-        // Perform person segmentation
+        // Perform privacy detection
         let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
 
         do {
-            try handler.perform([personSegmentationRequest])
-            if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
-                self.personMaskBuffer = result.pixelBuffer
+            if privacyMode == "segmentation" {
+                try handler.perform([personSegmentationRequest])
+                if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                    self.personMaskBuffer = result.pixelBuffer
+                }
+            } else {
+                try handler.perform([bodyPoseRequest])
+                self.detectedBodyPoses = bodyPoseRequest.results ?? []
             }
         } catch {
-            print("Failed to perform person segmentation: \(error)")
+            print("Failed to perform privacy detection: \(error)")
         }
 
         // Apply blur to humans
