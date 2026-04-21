@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.5.0...v0.5.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* corrected simulation video output dimensions ([d6dc64e](https://github.com/WiseLabCMU/AllSpark-ios/commit/d6dc64ed7c8a2dc2153431b04384a7a5e944df2b))
+
 ## [0.5.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.4.0...v0.5.0) (2026-04-21)
 
 
