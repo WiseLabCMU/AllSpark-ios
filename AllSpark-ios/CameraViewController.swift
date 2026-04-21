@@ -60,6 +60,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     // Display layer
     private var imageView: UIImageView!
+    private var loadingOverlay: UIView?
+    private var activityIndicator: UIActivityIndicatorView?
     private var switchCameraButton: UIButton!
     private var timerLabel: UILabel!
     private var captureModesLabel: UILabel!
@@ -72,6 +74,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         super.viewDidLoad()
 
         setupImageView()
+        setupLoadingOverlay()
 
         setupSwitchCameraButton()
         setupTimerLabel()
@@ -122,6 +125,39 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         imageView.contentMode = .scaleAspectFill
         imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(imageView)
+    }
+
+    private func setupLoadingOverlay() {
+        let overlay = UIView(frame: view.bounds)
+        overlay.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.overlayOpacityDark)
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        
+        let indicator = UIActivityIndicatorView(style: .large)
+        indicator.color = .white
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.startAnimating()
+        
+        let label = UILabel()
+        label.text = "Initializing Privacy Models..."
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        let stack = UIStackView(arrangedSubviews: [indicator, label])
+        stack.axis = .vertical
+        stack.spacing = AppConstants.UI.spacingMedium
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        
+        overlay.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor)
+        ])
+        
+        view.addSubview(overlay)
+        self.loadingOverlay = overlay
+        self.activityIndicator = indicator
     }
 
     private func setupSwitchCameraButton() {
@@ -496,13 +532,6 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         let formatString = UserDefaults.standard.string(forKey: "videoFormat") ?? "mp4"
         let fileExtension = formatString == "mov" ? "mov" : "mp4"
         let fileType: AVFileType = formatString == "mov" ? .mov : .mp4
-
-        // Get device name for filename
-        let deviceName = UserDefaults.standard.string(forKey: "deviceName") ?? UIDevice.current.name
-        let deviceNameForFilename = formatDeviceNameForFilename(deviceName)
-
-        // Get camera position for filename
-        let cameraPosition = currentCameraPosition == .front ? "front" : "back"
 
         let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
         let videoName = "tmp_recording_\(timestampMs).\(fileExtension)"
@@ -976,7 +1005,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         self.privacyMode = UserDefaults.standard.string(forKey: "privacyMode") ?? "segmentation"
         
         let segRequest = VNGeneratePersonSegmentationRequest()
-        segRequest.qualityLevel = .accurate
+        segRequest.qualityLevel = .balanced // Balanced is much faster for real-time video than .accurate
         self.personSegmentationRequest = segRequest
         
         self.bodyPoseRequest = VNDetectHumanBodyPoseRequest()
@@ -991,10 +1020,10 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             let scaleY = image.extent.height / maskImage.extent.height
             let scaledMask = maskImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
             
-            if let blurFilter = CIFilter(name: "CIGaussianBlur") {
-                blurFilter.setValue(image, forKey: kCIInputImageKey)
-                blurFilter.setValue(30.0, forKey: kCIInputRadiusKey)
-                if let blurredImage = blurFilter.outputImage {
+            if let pixelateFilter = CIFilter(name: "CIPixellate") {
+                pixelateFilter.setValue(image, forKey: kCIInputImageKey)
+                pixelateFilter.setValue(NSNumber(value: Float(AppConstants.Privacy.pixelationScale)), forKey: kCIInputScaleKey)
+                if let blurredImage = pixelateFilter.outputImage {
                     let clampedBlur = blurredImage.cropped(to: image.extent)
                     if let blendFilter = CIFilter(name: "CIBlendWithRedMask") {
                         blendFilter.setValue(clampedBlur, forKey: kCIInputImageKey)
@@ -1040,13 +1069,16 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
                 let poseRect = CGRect(x: expandedX, y: expandedY, width: expandedWidth, height: expandedHeight)
 
-                // Blur the bounding box
-                if let blurFilter = CIFilter(name: "CIGaussianBlur") {
+                // Pixelate the bounding box
+                if let pixelateFilter = CIFilter(name: "CIPixellate") {
                     let poseCrop = outputImage.cropped(to: poseRect)
-                    blurFilter.setValue(poseCrop, forKey: kCIInputImageKey)
-                    blurFilter.setValue(30.0, forKey: kCIInputRadiusKey)
+                    pixelateFilter.setValue(poseCrop, forKey: kCIInputImageKey)
+                    // Set center to the middle of the crop to align blocks locally
+                    let center = CIVector(x: poseRect.midX, y: poseRect.midY)
+                    pixelateFilter.setValue(center, forKey: kCIInputCenterKey)
+                    pixelateFilter.setValue(NSNumber(value: Float(AppConstants.Privacy.pixelationScale)), forKey: kCIInputScaleKey)
 
-                    if let blurredOutput = blurFilter.outputImage {
+                    if let blurredOutput = pixelateFilter.outputImage {
                         let croppedBlur = blurredOutput.cropped(to: poseRect)
                         outputImage = croppedBlur.composited(over: outputImage)
                     }
@@ -1212,24 +1244,6 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     // MARK: - Helper Methods
-
-    private func formatDeviceNameForFilename(_ name: String) -> String {
-        // Remove non-ASCII characters
-        let ascii = name.filter { $0.isASCII }
-
-        // Split on non-alphanumeric characters and filter empty components
-        let components = ascii.components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-
-        // Build title-case: capitalize first letter of each word
-        guard !components.isEmpty else { return "Device" }
-
-        let result = components.map { word in
-            word.prefix(1).uppercased() + word.dropFirst().lowercased()
-        }.joined()
-
-        return result.isEmpty ? "Device" : result
-    }
 }
 
 extension CameraViewController {
@@ -1296,7 +1310,17 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
             let uiImage = UIImage(cgImage: cgImage)
 
             DispatchQueue.main.async { [weak self] in
-                self?.imageView.image = uiImage
+                guard let self = self else { return }
+                self.imageView.image = uiImage
+                
+                if let overlay = self.loadingOverlay {
+                    self.loadingOverlay = nil // Nullify immediately to prevent duplicate animations
+                    UIView.animate(withDuration: 0.3, animations: { [weak overlay] in
+                        overlay?.alpha = 0
+                    }) { [weak overlay] _ in
+                        overlay?.removeFromSuperview()
+                    }
+                }
             }
         }
     }

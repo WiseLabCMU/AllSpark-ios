@@ -83,6 +83,11 @@ enum AppConstants {
         static let actionToggleOff = Color.red
     }
 
+    enum Privacy {
+        // High scale for strong privacy masking (pixelation)
+        static let pixelationScale: CGFloat = 50.0
+    }
+
     enum Video {
         static let defaultChunkDurationMs: Int = 10000
         static let dimensionHigh: Int = 1920

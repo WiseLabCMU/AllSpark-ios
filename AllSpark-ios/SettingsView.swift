@@ -18,7 +18,7 @@ struct SettingsView: View {
         let defaultName = UIDevice.current.name
         if UserDefaults.standard.string(forKey: "deviceName") == nil {
             UserDefaults.standard.set(defaultName, forKey: "deviceName")
-        }
+        } 
     }
 
     var body: some View {

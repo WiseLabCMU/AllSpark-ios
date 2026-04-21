@@ -15,7 +15,7 @@ Use `@AppStorage` for managing persistent user preferences and UI toggles.
 ### 2. Privacy Filtering Patterns
 
 Any new computer vision pipelines must respect user privacy. We utilize Vision framework to automatically identify humans in the frame.
-- **Camera Frames:** Real-time facial blurring must be applied to video/image captures before they are transmitted.
+- **Camera Frames:** Real-time facial and body blurring prefer pixelation over gaussian blur, and must be applied to video/image captures before they are transmitted.
 
 ### 3. Code Style & Architecture
 
@@ -25,6 +25,10 @@ Any new computer vision pipelines must respect user privacy. We utilize Vision f
 ### 4. Dependencies — Pin All Versions
 
 **All dependencies must use exact, pegged versions** (no `^`, `~`, or `*` ranges). This prevents version drift across environments and ensures reproducible builds for security.
+
+### 5. Magic Numbers & Constants
+
+**No magic numbers allowed inline.** Any numerical layout properties, structural modifiers (like opacities, heights, constraints), and complex configurations (duration bounds, bitrates) must be formally extracted and organized into the `AppConstants.swift` structure. This guarantees centralized governance of our UI aesthetics and networking policies.
 
 ## Build & Test
 
