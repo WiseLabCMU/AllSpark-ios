@@ -29,12 +29,17 @@ struct SettingsView: View {
                 
                 Spacer()
                 
+                ConnectionStatusButton()
+                
                 Button(action: {
                     showingStatusInfo = true
                 }) {
-                    Image(systemName: "info.circle")
-                        .font(.title2)
-                        .foregroundColor(AppConstants.Colors.buttonPrimary)
+                    Image(systemName: "info")
+                        .font(.system(size: AppConstants.UI.iconSizeSecure, weight: .bold))
+                        .foregroundColor(AppConstants.Colors.buttonInfo)
+                        .frame(width: AppConstants.UI.buttonSizeMedium, height: AppConstants.UI.buttonSizeMedium)
+                        .background(Color(AppConstants.Colors.backgroundBaseUI).opacity(AppConstants.UI.buttonBackgroundAlpha))
+                        .clipShape(Circle())
                 }
             }
             .padding(.horizontal, AppConstants.UI.paddingStandard)
@@ -118,20 +123,6 @@ struct SettingsView: View {
 
                     Toggle("Verify SSL Certificate", isOn: $verifyCertificate)
 
-                    HStack {
-                        Text("WebSocket")
-                        Spacer()
-                        Button(action: {
-                            if connectionManager.isConnected {
-                                connectionManager.disconnect()
-                            } else {
-                                connectionManager.connect()
-                            }
-                        }) {
-                            Text(connectionManager.isConnected ? "Disconnect" : "Connect")
-                                .foregroundColor(connectionManager.isConnected ? AppConstants.Colors.actionToggleOff : AppConstants.Colors.actionToggleOn)
-                        }
-                    }
                 }
 
                 Section(header: Text("Privacy Filter Mode")) {

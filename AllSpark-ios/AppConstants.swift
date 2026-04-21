@@ -26,6 +26,7 @@ enum AppConstants {
         // Font Sizing
         static let fontSizeGateIcon: CGFloat = 56.0
         static let fontSizeTimer: CGFloat = 20.0
+        static let fontSizeStandard: CGFloat = 16.0
         static let fontSizeModes: CGFloat = 11.0
 
         // Spacing & Padding
@@ -43,6 +44,7 @@ enum AppConstants {
         static let paddingMicro: CGFloat = 2.0
 
         static let offsetTrailingStatus: CGFloat = -80.0
+        static let offsetSecureBadge: CGFloat = 4.0
 
         // Corner Radii
         static let cornerRadiusSwitch: CGFloat = 25.0
@@ -78,6 +80,7 @@ enum AppConstants {
 
         // Actions
         static let buttonPrimary = Color.blue
+        static let buttonInfo = Color.teal
         static let buttonDestructive = Color.red
         static let actionToggleOn = Color.blue
         static let actionToggleOff = Color.red

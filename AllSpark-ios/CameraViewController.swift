@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import Vision
 import CoreImage
+import SwiftUI
 import Combine
 
 class CameraViewController: UIViewController, UINavigationControllerDelegate {
@@ -67,8 +68,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var captureModesLabel: UILabel!
     private var recordingTimer: Timer?
     private var recordingDuration: TimeInterval = 0
-    private var connectionStatusIcon: UIButton!
-    private var connectionSecureIcon: UIButton!
+    private var connectionHostingController: UIHostingController<ConnectionStatusButton>!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -78,13 +78,12 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         setupSwitchCameraButton()
         setupTimerLabel()
-        setupConnectionStatusIcon()
+        setupConnectionStatusButton()
         setupCamera()
         setupPrivacyFiltering()
 
         // ConnectionManager is a singleton, so we just ensure it's connected and observe it
         ConnectionManager.shared.connect()
-        setupConnectionObserver()
         setupCommandObserver()
     }
 
@@ -140,7 +139,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         let label = UILabel()
         label.text = "Initializing Privacy Models..."
         label.textColor = .white
-        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.font = .systemFont(ofSize: AppConstants.UI.fontSizeStandard, weight: .medium)
         label.translatesAutoresizingMaskIntoConstraints = false
         
         let stack = UIStackView(arrangedSubviews: [indicator, label])
@@ -261,94 +260,20 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         ])
     }
 
-    private func setupConnectionStatusIcon() {
-        connectionStatusIcon = UIButton(type: .system)
-        connectionStatusIcon.translatesAutoresizingMaskIntoConstraints = false
-        connectionStatusIcon.tintColor = .white
-        connectionStatusIcon.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.buttonBackgroundAlpha)
-        connectionStatusIcon.layer.cornerRadius = AppConstants.UI.cornerRadiusLarge
-        connectionStatusIcon.isUserInteractionEnabled = false // Disable interaction, just display
-
-        view.addSubview(connectionStatusIcon)
-
+    private func setupConnectionStatusButton() {
+        let buttonView = ConnectionStatusButton()
+        connectionHostingController = UIHostingController(rootView: buttonView)
+        connectionHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        connectionHostingController.view.backgroundColor = .clear
+        
+        addChild(connectionHostingController)
+        view.addSubview(connectionHostingController.view)
+        connectionHostingController.didMove(toParent: self)
+        
         NSLayoutConstraint.activate([
-            connectionStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
-            connectionStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: AppConstants.UI.offsetTrailingStatus),
-            connectionStatusIcon.widthAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeMedium),
-            connectionStatusIcon.heightAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeMedium)
+            connectionHostingController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
+            connectionHostingController.view.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: AppConstants.UI.offsetTrailingStatus)
         ])
-
-        // Setup lock icon overlay for secure connection indicator
-        connectionSecureIcon = UIButton(type: .system)
-        connectionSecureIcon.translatesAutoresizingMaskIntoConstraints = false
-        connectionSecureIcon.tintColor = .systemGreen
-        connectionSecureIcon.isUserInteractionEnabled = false // Disable interaction, just display
-        connectionSecureIcon.isHidden = true // Initially hidden
-
-        if let lockImage = UIImage(systemName: "lock.fill") {
-            let config = UIImage.SymbolConfiguration(pointSize: AppConstants.UI.iconSizeSecurePoint, weight: .semibold, scale: .default)
-            connectionSecureIcon.setImage(lockImage.withConfiguration(config), for: .normal)
-        }
-
-        view.addSubview(connectionSecureIcon)
-
-        NSLayoutConstraint.activate([
-            connectionSecureIcon.bottomAnchor.constraint(equalTo: connectionStatusIcon.bottomAnchor, constant: AppConstants.UI.paddingMicro),
-            connectionSecureIcon.trailingAnchor.constraint(equalTo: connectionStatusIcon.trailingAnchor, constant: AppConstants.UI.paddingMicro),
-            connectionSecureIcon.widthAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSecure),
-            connectionSecureIcon.heightAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSecure)
-        ])
-
-        updateConnectionStatusIcon()
-    }
-
-    private func updateConnectionStatusIcon() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            if ConnectionManager.shared.isConnected {
-                // Connected - green
-                if let image = UIImage(systemName: "wifi") {
-                    self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusConnectedUI
-                }
-                // Show lock icon if using secure protocol
-                self.connectionSecureIcon.isHidden = !ConnectionManager.shared.isSecureProtocol
-            } else if ConnectionManager.shared.isAttemptingConnection {
-                // Attempting connection - amber/orange
-                if let image = UIImage(systemName: "wifi") {
-                    self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusConnectingUI
-                }
-                // Hide lock icon while attempting
-                self.connectionSecureIcon.isHidden = true
-            } else {
-                // Disconnected - red
-                if let image = UIImage(systemName: "wifi.slash") {
-                    self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusDisconnectedUI
-                }
-                // Hide lock icon when disconnected
-                self.connectionSecureIcon.isHidden = true
-            }
-        }
-    }
-
-    private func setupConnectionObserver() {
-        // Observe connection state changes
-        ConnectionManager.shared.$isConnected
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateConnectionStatusIcon()
-            }
-            .store(in: &cancellables)
-
-        ConnectionManager.shared.$isAttemptingConnection
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateConnectionStatusIcon()
-            }
-            .store(in: &cancellables)
     }
 
     private func setupCommandObserver() {
