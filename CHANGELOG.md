@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.5.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.4.0...v0.5.0) (2026-04-21)
+
+
+### Features
+
+* add connection button/state on all views ([4d891d5](https://github.com/WiseLabCMU/AllSpark-ios/commit/4d891d50029a18e77cd5d37ff65542a5271b8592))
+* add status info consolidating state data off the settings config ([3bd181d](https://github.com/WiseLabCMU/AllSpark-ios/commit/3bd181d33fab7d450530757d7c6d13c7e18afaa4))
+* Anti-jitter metadata logging, ms-scale chunk naming, & UI modality overlay ([6e0d9a9](https://github.com/WiseLabCMU/AllSpark-ios/commit/6e0d9a9006c15114b336a81cec87d14edaceadf6))
+* Gate Bluetooth Core behind server comms policy and rm Info.plist requirement ([4d9bb3e](https://github.com/WiseLabCMU/AllSpark-ios/commit/4d9bb3ed1f39436ec2a35ae9600670b0a7bbd6a1))
+* Persistent client connection nonces and txt log sync capabilities ([5dac552](https://github.com/WiseLabCMU/AllSpark-ios/commit/5dac5528cf3be35335758648975c276c924aae38))
+* **privacy:** add blur for full person; add demo video in sim ([5ed196d](https://github.com/WiseLabCMU/AllSpark-ios/commit/5ed196d531adaf42fdac31d041d0986a76e58bdf))
+* **privacy:** add pose estimation as an optional privacy filter ([7d05b1f](https://github.com/WiseLabCMU/AllSpark-ios/commit/7d05b1f274ea6e0d892835c37b9e25bfde903814))
+
+
+### Bug Fixes
+
+* consolidate magic numbers ([aa62688](https://github.com/WiseLabCMU/AllSpark-ios/commit/aa626887d8a962aff32b98273a7cde19c107c87b))
+* Correct malformed icon glob in gitignore ([7967395](https://github.com/WiseLabCMU/AllSpark-ios/commit/79673952b034325d73db9d6d497796a523a2673c))
+* Guard serverTrust optional and add post-beta pinning comment ([eef6d15](https://github.com/WiseLabCMU/AllSpark-ios/commit/eef6d1551417dd042dd5c05a89640075a33ab463))
+* prefer pixelation over gaussian blur ([699d901](https://github.com/WiseLabCMU/AllSpark-ios/commit/699d901a12c38dd7c650cc0d6fa2d37922534e28))
+* remove interfaces from discovered services ([e83f67b](https://github.com/WiseLabCMU/AllSpark-ios/commit/e83f67bcbc2c0f03e94df275b6e4c318908300ed))
+* Remove no-op Re-check button and add beta tab-order comment ([433132e](https://github.com/WiseLabCMU/AllSpark-ios/commit/433132eb6ad702b01533628843d2323b43fa8559))
+* Replace deprecated presentationMode and unblock stopScanning from main thread ([3db9d4c](https://github.com/WiseLabCMU/AllSpark-ios/commit/3db9d4c001ddd3a85fc16832963bfc89f9fb8305))
+* Reset isBluetoothOn when bluetoothManager is destroyed by policy ([55c7ece](https://github.com/WiseLabCMU/AllSpark-ios/commit/55c7ece154e672c920332dfed0c300b3cdcf877f))
+* Show Bluetooth as Not Monitored when policy has not activated it ([aa9937d](https://github.com/WiseLabCMU/AllSpark-ios/commit/aa9937d0e1100e8f6646d864eddf918504675f73))
+* Thread-safe timestamp read, pixelBufferPool reuse, and stale comment ([29ce4f4](https://github.com/WiseLabCMU/AllSpark-ios/commit/29ce4f413f161089f23ba10493d93a5a1dd5045d))
+* update release please to latest ([e9cc2ad](https://github.com/WiseLabCMU/AllSpark-ios/commit/e9cc2add1ba7a9a946b5175342d57167d9259587))
+* URLSession leak, force-unwrap crash, nonce collision logic, and orphaned txt cleanup ([9e57f04](https://github.com/WiseLabCMU/AllSpark-ios/commit/9e57f04056e1d1da9192f4be27f90eb4a07746e0))
+
 ## [0.4.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.3.0...v0.4.0) (2026-03-10)
 
 
