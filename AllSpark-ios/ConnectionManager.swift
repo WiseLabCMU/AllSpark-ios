@@ -390,10 +390,16 @@ class ConnectionManager: NSObject, ObservableObject {
 
                     let hostString: String
                     switch host {
-                    case .ipv4(let ip): hostString = "\(ip)"
-                    case .ipv6(let ip): hostString = "[\(ip)]"
-                    case .name(let name, _): hostString = name
-                    @unknown default: hostString = "unknown"
+                    case .ipv4(let ip):
+                        let cleanIP = "\(ip)".components(separatedBy: "%").first ?? "\(ip)"
+                        hostString = cleanIP
+                    case .ipv6(let ip):
+                        let cleanIP = "\(ip)".components(separatedBy: "%").first ?? "\(ip)"
+                        hostString = "[\(cleanIP)]"
+                    case .name(let name, _):
+                        hostString = name
+                    @unknown default:
+                        hostString = "unknown"
                     }
 
                     let portString = "\(port.rawValue)"
