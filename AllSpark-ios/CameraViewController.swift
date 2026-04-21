@@ -50,7 +50,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
     private var videoFormat: AVFileType = .mp4 // Default format
-    private var recordingDurationMs: Int = 30000 // Default 30 seconds in milliseconds
+    private var recordingDurationMs: Int = AppConstants.Video.defaultChunkDurationMs
     private var autoStopTimer: Timer?
     private var shouldUploadAfterRecording = false
     private let recordingStateLock = NSLock()
@@ -134,17 +134,17 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             switchCameraButton.setTitle("Flip", for: .normal)
         }
         switchCameraButton.tintColor = .white
-        switchCameraButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        switchCameraButton.layer.cornerRadius = 25
+        switchCameraButton.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.buttonBackgroundAlpha)
+        switchCameraButton.layer.cornerRadius = AppConstants.UI.cornerRadiusSwitch
         switchCameraButton.addTarget(self, action: #selector(switchCamera), for: .touchUpInside)
 
         view.addSubview(switchCameraButton)
 
         NSLayoutConstraint.activate([
-            switchCameraButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            switchCameraButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            switchCameraButton.widthAnchor.constraint(equalToConstant: 50),
-            switchCameraButton.heightAnchor.constraint(equalToConstant: 50)
+            switchCameraButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
+            switchCameraButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -AppConstants.UI.paddingStandard),
+            switchCameraButton.widthAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeLarge),
+            switchCameraButton.heightAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeLarge)
         ])
 
     }
@@ -157,8 +157,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         // Container for background
         recordingIndicatorContainer = UIView()
         recordingIndicatorContainer.translatesAutoresizingMaskIntoConstraints = false
-        recordingIndicatorContainer.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        recordingIndicatorContainer.layer.cornerRadius = 8
+        recordingIndicatorContainer.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.buttonBackgroundAlpha)
+        recordingIndicatorContainer.layer.cornerRadius = AppConstants.UI.cornerRadiusSmall
         recordingIndicatorContainer.clipsToBounds = true
         recordingIndicatorContainer.isHidden = true // Initially hidden
         view.addSubview(recordingIndicatorContainer)
@@ -167,7 +167,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         let stackView = UIStackView()
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
-        stackView.spacing = 8
+        stackView.spacing = AppConstants.UI.spacingSmall
         stackView.alignment = .center
         stackView.distribution = .fill
         recordingIndicatorContainer.addSubview(stackView)
@@ -186,7 +186,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         let textStackView = UIStackView()
         textStackView.translatesAutoresizingMaskIntoConstraints = false
         textStackView.axis = .vertical
-        textStackView.spacing = 2
+        textStackView.spacing = AppConstants.UI.spacingTiny
         textStackView.alignment = .leading
 
         // Timer Label
@@ -194,34 +194,34 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         timerLabel.translatesAutoresizingMaskIntoConstraints = false
         timerLabel.text = "00:00"
         timerLabel.textColor = .red // User requested red
-        timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold)
+        timerLabel.font = UIFont.monospacedDigitSystemFont(ofSize: AppConstants.UI.fontSizeTimer, weight: .bold)
         textStackView.addArrangedSubview(timerLabel)
 
         captureModesLabel = UILabel()
         captureModesLabel.translatesAutoresizingMaskIntoConstraints = false
         captureModesLabel.text = ""
         captureModesLabel.textColor = .white
-        captureModesLabel.font = UIFont.systemFont(ofSize: 11, weight: .medium)
+        captureModesLabel.font = UIFont.systemFont(ofSize: AppConstants.UI.fontSizeModes, weight: .medium)
         captureModesLabel.numberOfLines = 1
         textStackView.addArrangedSubview(captureModesLabel)
 
         stackView.addArrangedSubview(textStackView)
 
         NSLayoutConstraint.activate([
-            recordingIndicatorContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            recordingIndicatorContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
             recordingIndicatorContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             // Flex height based on content
-            recordingIndicatorContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
+            recordingIndicatorContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: AppConstants.UI.indicatorMinHeight),
 
             // StackView constraints inside container with padding
-            stackView.leadingAnchor.constraint(equalTo: recordingIndicatorContainer.leadingAnchor, constant: 10),
-            stackView.trailingAnchor.constraint(equalTo: recordingIndicatorContainer.trailingAnchor, constant: -10),
-            stackView.topAnchor.constraint(equalTo: recordingIndicatorContainer.topAnchor, constant: 6),
-            stackView.bottomAnchor.constraint(equalTo: recordingIndicatorContainer.bottomAnchor, constant: -6),
+            stackView.leadingAnchor.constraint(equalTo: recordingIndicatorContainer.leadingAnchor, constant: AppConstants.UI.paddingSmall),
+            stackView.trailingAnchor.constraint(equalTo: recordingIndicatorContainer.trailingAnchor, constant: -AppConstants.UI.paddingSmall),
+            stackView.topAnchor.constraint(equalTo: recordingIndicatorContainer.topAnchor, constant: AppConstants.UI.paddingTiny),
+            stackView.bottomAnchor.constraint(equalTo: recordingIndicatorContainer.bottomAnchor, constant: -AppConstants.UI.paddingTiny),
 
             // Icon size
-            iconView.widthAnchor.constraint(equalToConstant: 12),
-            iconView.heightAnchor.constraint(equalToConstant: 12)
+            iconView.widthAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSmall),
+            iconView.heightAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSmall)
         ])
     }
 
@@ -229,17 +229,17 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         connectionStatusIcon = UIButton(type: .system)
         connectionStatusIcon.translatesAutoresizingMaskIntoConstraints = false
         connectionStatusIcon.tintColor = .white
-        connectionStatusIcon.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        connectionStatusIcon.layer.cornerRadius = 20
+        connectionStatusIcon.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.buttonBackgroundAlpha)
+        connectionStatusIcon.layer.cornerRadius = AppConstants.UI.cornerRadiusLarge
         connectionStatusIcon.isUserInteractionEnabled = false // Disable interaction, just display
 
         view.addSubview(connectionStatusIcon)
 
         NSLayoutConstraint.activate([
-            connectionStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            connectionStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -80),
-            connectionStatusIcon.widthAnchor.constraint(equalToConstant: 40),
-            connectionStatusIcon.heightAnchor.constraint(equalToConstant: 40)
+            connectionStatusIcon.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
+            connectionStatusIcon.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: AppConstants.UI.offsetTrailingStatus),
+            connectionStatusIcon.widthAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeMedium),
+            connectionStatusIcon.heightAnchor.constraint(equalToConstant: AppConstants.UI.buttonSizeMedium)
         ])
 
         // Setup lock icon overlay for secure connection indicator
@@ -250,17 +250,17 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         connectionSecureIcon.isHidden = true // Initially hidden
 
         if let lockImage = UIImage(systemName: "lock.fill") {
-            let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold, scale: .default)
+            let config = UIImage.SymbolConfiguration(pointSize: AppConstants.UI.iconSizeSecurePoint, weight: .semibold, scale: .default)
             connectionSecureIcon.setImage(lockImage.withConfiguration(config), for: .normal)
         }
 
         view.addSubview(connectionSecureIcon)
 
         NSLayoutConstraint.activate([
-            connectionSecureIcon.bottomAnchor.constraint(equalTo: connectionStatusIcon.bottomAnchor, constant: 2),
-            connectionSecureIcon.trailingAnchor.constraint(equalTo: connectionStatusIcon.trailingAnchor, constant: 2),
-            connectionSecureIcon.widthAnchor.constraint(equalToConstant: 20),
-            connectionSecureIcon.heightAnchor.constraint(equalToConstant: 20)
+            connectionSecureIcon.bottomAnchor.constraint(equalTo: connectionStatusIcon.bottomAnchor, constant: AppConstants.UI.paddingMicro),
+            connectionSecureIcon.trailingAnchor.constraint(equalTo: connectionStatusIcon.trailingAnchor, constant: AppConstants.UI.paddingMicro),
+            connectionSecureIcon.widthAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSecure),
+            connectionSecureIcon.heightAnchor.constraint(equalToConstant: AppConstants.UI.iconSizeSecure)
         ])
 
         updateConnectionStatusIcon()
@@ -274,7 +274,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 // Connected - green
                 if let image = UIImage(systemName: "wifi") {
                     self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = .systemGreen
+                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusConnectedUI
                 }
                 // Show lock icon if using secure protocol
                 self.connectionSecureIcon.isHidden = !ConnectionManager.shared.isSecureProtocol
@@ -282,7 +282,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 // Attempting connection - amber/orange
                 if let image = UIImage(systemName: "wifi") {
                     self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = .systemOrange
+                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusConnectingUI
                 }
                 // Hide lock icon while attempting
                 self.connectionSecureIcon.isHidden = true
@@ -290,7 +290,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 // Disconnected - red
                 if let image = UIImage(systemName: "wifi.slash") {
                     self.connectionStatusIcon.setImage(image, for: .normal)
-                    self.connectionStatusIcon.tintColor = .systemRed
+                    self.connectionStatusIcon.tintColor = AppConstants.Colors.statusDisconnectedUI
                 }
                 // Hide lock icon when disconnected
                 self.connectionSecureIcon.isHidden = true
@@ -373,8 +373,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                     // A file 'covers' [timestamp, timestamp + chunkDuration]
                     // We upload if there is ANY overlap.
 
-                    // Get current chunk duration from config (default 30s)
-                    var chunkDuration = 30.0
+                    // Get current chunk duration from config
+                    var chunkDuration = Double(AppConstants.Video.defaultChunkDurationMs) / 1000.0
                     if let config = ConnectionManager.shared.clientConfig,
                        let durationMs = config["videoChunkDurationMs"] as? Int {
                         chunkDuration = Double(durationMs) / 1000.0
@@ -518,8 +518,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
             let outputSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1920 : 1080,
-                AVVideoHeightKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1080 : 1920
+                AVVideoWidthKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow,
+                AVVideoHeightKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
             ]
 
             assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
@@ -530,8 +530,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
                 let sourcePixelBufferAttributes: [String: Any] = [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1920 : 1080,
-                    kCVPixelBufferHeightKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? 1080 : 1920
+                    kCVPixelBufferWidthKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow,
+                    kCVPixelBufferHeightKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
                 ]
 
                 adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
@@ -540,8 +540,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 let audioOutputSettings: [String: Any] = [
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
                     AVNumberOfChannelsKey: 1,
-                    AVSampleRateKey: 44100.0,
-                    AVEncoderBitRateKey: 128000
+                    AVSampleRateKey: AppConstants.Audio.sampleRate,
+                    AVEncoderBitRateKey: AppConstants.Audio.bitRate
                 ]
 
                 audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
@@ -581,7 +581,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 }
 
                 // Chunk Timer
-                var chunkMs = 30000 // Default 30s
+                var chunkMs = AppConstants.Video.defaultChunkDurationMs
                 if let config = ConnectionManager.shared.clientConfig,
                    let ms = config["videoChunkDurationMs"] as? Int {
                     chunkMs = ms
@@ -725,7 +725,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                    }
 
                    let asset = AVURLAsset(url: urlToProcess)
-                   var fps: Double = 30.0
+                   var fps: Double = AppConstants.Video.defaultFPS
                    var width: Double = 0
                    var height: Double = 0
 

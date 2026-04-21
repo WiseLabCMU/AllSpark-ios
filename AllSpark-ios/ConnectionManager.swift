@@ -334,8 +334,8 @@ class ConnectionManager: NSObject, ObservableObject {
     private func handleServerDisconnection() {
         disconnect()
 
-        // Auto-reconnect after 5 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+        // Auto-reconnect
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Network.autoReconnectDelaySeconds) { [weak self] in
             if self?.isConnected == false {
                 print("Attempting auto-reconnect...")
                 self?.connect()
@@ -518,14 +518,14 @@ class ConnectionManager: NSObject, ObservableObject {
         DispatchQueue.global(qos: .background).async { [weak self] in
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
-            // Get limit from config (default 16000 MB)
-            var limitMB = 16000
+            // Get limit from config
+            var limitMB = AppConstants.Storage.defaultVideoBufferMaxMB
             if let config = self?.clientConfig,
                let configLimit = config["videoBufferMaxMB"] as? Int {
                 limitMB = configLimit
             }
 
-            let limitBytes = Int64(limitMB) * 1024 * 1024
+            let limitBytes = Int64(limitMB) * AppConstants.Storage.bytesPerMB
 
             do {
                 let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey, .fileSizeKey], options: .skipsHiddenFiles)
@@ -546,7 +546,7 @@ class ConnectionManager: NSObject, ObservableObject {
                     }
                 }
 
-                print("Total video storage usage: \(totalSize / 1024 / 1024) MB (Limit: \(limitMB) MB)")
+                print("Total video storage usage: \(totalSize / AppConstants.Storage.bytesPerMB) MB (Limit: \(limitMB) MB)")
 
                 if totalSize > limitBytes {
                     // Sort by date (oldest first)

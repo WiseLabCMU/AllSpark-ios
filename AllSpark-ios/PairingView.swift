@@ -43,24 +43,24 @@ struct PairingView: View {
                     VStack {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
-                            .foregroundColor(.yellow)
+                            .foregroundColor(AppConstants.Colors.statusWarning)
                         Text(error)
-                            .foregroundColor(.white)
+                            .foregroundColor(AppConstants.Colors.textPrimary)
                             .padding()
                     }
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(10)
+                    .background(AppConstants.Colors.backgroundBase.opacity(AppConstants.UI.overlayOpacityMedium))
+                    .cornerRadius(AppConstants.UI.cornerRadiusStandard)
                 }
 
                 VStack {
                     Spacer()
                     Text("Scan Server QR Code")
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundColor(AppConstants.Colors.textPrimary)
                         .padding()
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(20)
-                        .padding(.bottom, 50)
+                        .background(AppConstants.Colors.backgroundBase.opacity(AppConstants.UI.overlayOpacityLight))
+                        .cornerRadius(AppConstants.UI.cornerRadiusLarge)
+                        .padding(.bottom, AppConstants.UI.paddingLarge)
                 }
             }
             .navigationBarTitle("Pair Server", displayMode: .inline)

@@ -25,8 +25,8 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             Text("Client Settings")
                 .font(.largeTitle)
-                .padding(.top, 20)
-                .padding(.bottom, 10)
+                .padding(.top, AppConstants.UI.paddingStandard)
+                .padding(.bottom, AppConstants.UI.paddingSmall)
 
             Form {
                 Section(header: Text("Device")) {
@@ -63,19 +63,19 @@ struct SettingsView: View {
                         if connectionManager.isConnected {
                             Text("Server Host ") +
                             Text("(Connected)")
-                                .foregroundColor(.green)
+                                .foregroundColor(AppConstants.Colors.statusConnected)
                             if connectionManager.isSecureProtocol {
                                 Image(systemName: "lock.fill")
-                                    .foregroundColor(.green)
+                                    .foregroundColor(AppConstants.Colors.statusConnected)
                             }
                         } else if connectionManager.isAttemptingConnection {
                             Text("Server Host ") +
                             Text("(Connecting...)")
-                                .foregroundColor(.orange)
+                                .foregroundColor(AppConstants.Colors.statusConnecting)
                         } else {
                             Text("Server Host ") +
                             Text("(Disconnected)")
-                                .foregroundColor(.red)
+                                .foregroundColor(AppConstants.Colors.statusDisconnected)
                         }
                         Spacer()
                         TextField("Server Host", text: Binding(
@@ -134,7 +134,7 @@ struct SettingsView: View {
                             }
                         }) {
                             Text(connectionManager.isConnected ? "Disconnect" : "Connect")
-                                .foregroundColor(connectionManager.isConnected ? .red : .blue)
+                                .foregroundColor(connectionManager.isConnected ? AppConstants.Colors.actionToggleOff : AppConstants.Colors.actionToggleOn)
                         }
                     }
 
@@ -142,30 +142,16 @@ struct SettingsView: View {
                         Text("Active Transport")
                         Spacer()
                         Text(commsManager.activeTransport.capitalized)
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        Text("Bluetooth")
-                        Spacer()
-                        if let policy = connectionManager.clientConfig?["communicationsPolicy"] as? [String: Bool],
-                           policy["bluetooth"] == true {
-                            // Bluetooth is being actively monitored by CommunicationsManager
-                            Text(commsManager.isBluetoothOn ? "ON" : "OFF")
-                                .foregroundColor(commsManager.isBluetoothOn ? .red : .green)
-                        } else {
-                            Text("Not Monitored")
-                                .foregroundColor(.secondary)
-                        }
+                            .foregroundColor(AppConstants.Colors.textSecondary)
                     }
 
                     if let warning = commsManager.transportMismatchWarning {
                         HStack(alignment: .top) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(AppConstants.Colors.statusConnecting)
                             Text(warning)
                                 .font(.footnote)
-                                .foregroundColor(.orange)
+                                .foregroundColor(AppConstants.Colors.statusConnecting)
                         }
                     }
                 }
@@ -186,11 +172,11 @@ struct SettingsView: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 200)
-            .background(Color(UIColor.secondarySystemBackground))
+            .frame(maxHeight: AppConstants.UI.viewMaxHeightMedium)
+            .background(AppConstants.Colors.backgroundSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(UIColor.systemGroupedBackground))
+        .background(AppConstants.Colors.backgroundGrouped)
         .onReceive(connectionManager.$clientConfig) { config in
             if let config = config,
                let jsonData = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted),
@@ -206,7 +192,7 @@ struct SettingsView: View {
                             Text(interface)
                             Spacer()
                             Text(ip)
-                                .foregroundColor(.gray)
+                                .foregroundColor(AppConstants.Colors.textSecondary)
                         }
                     }
                 }

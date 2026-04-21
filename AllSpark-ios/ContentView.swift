@@ -51,36 +51,36 @@ struct CommunicationsGateView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.85)
+            AppConstants.Colors.backgroundBase.opacity(AppConstants.UI.overlayOpacityDark)
                 .ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: AppConstants.UI.spacingLarge) {
                 Image(systemName: "exclamationmark.shield.fill")
-                    .font(.system(size: 56))
-                    .foregroundColor(.yellow)
+                    .font(.system(size: AppConstants.UI.fontSizeGateIcon))
+                    .foregroundColor(AppConstants.Colors.statusWarning)
 
                 Text("Communications Check Required")
                     .font(.title2.bold())
-                    .foregroundColor(.white)
+                    .foregroundColor(AppConstants.Colors.textPrimary)
 
                 Text("Please resolve the following before continuing:")
                     .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .foregroundColor(AppConstants.Colors.textSecondary)
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: AppConstants.UI.spacingMedium) {
                     ForEach(commsManager.gateViolations, id: \.self) { violation in
-                        HStack(alignment: .top, spacing: 10) {
+                        HStack(alignment: .top, spacing: AppConstants.UI.spacingSmall) {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.red)
+                                .foregroundColor(AppConstants.Colors.statusError)
                             Text(violation)
-                                .foregroundColor(.white)
+                                .foregroundColor(AppConstants.Colors.textPrimary)
                                 .font(.body)
                         }
                     }
                 }
                 .padding()
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(12)
+                .background(AppConstants.Colors.overlayBaseLight.opacity(AppConstants.UI.overlayOpacityFaint))
+                .cornerRadius(AppConstants.UI.cornerRadiusMedium)
 
                 Button(action: {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -90,12 +90,12 @@ struct CommunicationsGateView: View {
                     Label("Open Settings", systemImage: "gear")
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .background(AppConstants.Colors.buttonPrimary)
+                        .foregroundColor(AppConstants.Colors.textPrimary)
+                        .cornerRadius(AppConstants.UI.cornerRadiusStandard)
                 }
             }
-            .padding(32)
+            .padding(AppConstants.UI.paddingHeader)
         }
     }
 }
