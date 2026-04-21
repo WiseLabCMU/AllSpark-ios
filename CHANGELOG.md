@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.5.1...v0.5.2) (2026-04-21)
+
+
+### Bug Fixes
+
+* include proper export and bluetooth plist keys ([da3f588](https://github.com/WiseLabCMU/AllSpark-ios/commit/da3f5885897dd4c359000a5044c7f884e6cff39e))
+
 ## [0.5.1](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.5.0...v0.5.1) (2026-04-21)
 
 
