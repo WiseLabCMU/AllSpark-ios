@@ -8,10 +8,9 @@ struct SettingsView: View {
     @AppStorage("verifyCertificate") private var verifyCertificate: Bool = true
     @AppStorage("deviceName") private var deviceName: String = ""
     @AppStorage("privacyMode") private var privacyMode: String = "segmentation"
-    @State private var displayText: String = "Awaiting remote configuration from server..."
     @State private var selectedEndpoint: NWEndpoint?
-    @State private var showingInterfaces: Bool = false
     @State private var showingScanner: Bool = false
+    @State private var showingStatusInfo: Bool = false
 
     init() {
         // Set default deviceName from UIDevice if not already set
@@ -23,10 +22,24 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Client Settings")
-                .font(.largeTitle)
-                .padding(.top, AppConstants.UI.paddingStandard)
-                .padding(.bottom, AppConstants.UI.paddingSmall)
+            HStack {
+                Text("Client Settings")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                
+                Spacer()
+                
+                Button(action: {
+                    showingStatusInfo = true
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.title2)
+                        .foregroundColor(AppConstants.Colors.buttonPrimary)
+                }
+            }
+            .padding(.horizontal, AppConstants.UI.paddingStandard)
+            .padding(.top, AppConstants.UI.paddingStandard)
+            .padding(.bottom, AppConstants.UI.paddingSmall)
 
             Form {
                 Section(header: Text("Device")) {
@@ -37,24 +50,6 @@ struct SettingsView: View {
                             .multilineTextAlignment(.trailing)
                             .autocapitalization(.words)
                             .textInputAutocapitalization(.words)
-                    }
-
-                    if !connectionManager.ipAddresses.isEmpty {
-                        HStack {
-                            Text("Device Interfaces")
-                            Spacer()
-                            Button("Interfaces") {
-                                showingInterfaces = true
-                            }
-                        }
-                    }
-
-                    HStack {
-                        Text("Permissions")
-                        Spacer()
-                        Button("Edit Permissions") {
-                            openAppSettings()
-                        }
                     }
                 }
 
@@ -137,23 +132,6 @@ struct SettingsView: View {
                                 .foregroundColor(connectionManager.isConnected ? AppConstants.Colors.actionToggleOff : AppConstants.Colors.actionToggleOn)
                         }
                     }
-
-                    HStack {
-                        Text("Active Transport")
-                        Spacer()
-                        Text(commsManager.activeTransport.capitalized)
-                            .foregroundColor(AppConstants.Colors.textSecondary)
-                    }
-
-                    if let warning = commsManager.transportMismatchWarning {
-                        HStack(alignment: .top) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(AppConstants.Colors.statusConnecting)
-                            Text(warning)
-                                .font(.footnote)
-                                .foregroundColor(AppConstants.Colors.statusConnecting)
-                        }
-                    }
                 }
 
                 Section(header: Text("Privacy Filter Mode")) {
@@ -163,55 +141,15 @@ struct SettingsView: View {
                     }
                 }
             }
-
-            Divider()
-
-            ScrollView {
-                Text(displayText)
-                    .font(.body)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: AppConstants.UI.viewMaxHeightMedium)
-            .background(AppConstants.Colors.backgroundSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppConstants.Colors.backgroundGrouped)
-        .onReceive(connectionManager.$clientConfig) { config in
-            if let config = config,
-               let jsonData = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                displayText = "Received Client Config:\n\(jsonString)"
-            }
-        }
-        .sheet(isPresented: $showingInterfaces) {
-            NavigationView {
-                List {
-                    ForEach(connectionManager.ipAddresses.sorted(by: { $0.key < $1.key }), id: \.key) { interface, ip in
-                        HStack {
-                            Text(interface)
-                            Spacer()
-                            Text(ip)
-                                .foregroundColor(AppConstants.Colors.textSecondary)
-                        }
-                    }
-                }
-                .navigationTitle("Device Interfaces")
-                .toolbar {
-                    Button("Done") {
-                        showingInterfaces = false
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $showingScanner) {
             PairingView(serverHost: $serverHost)
         }
-    }
-
-    private func openAppSettings() {
-        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(settingsURL)
+        .sheet(isPresented: $showingStatusInfo) {
+            StatusInfoView()
+        }
     }
 }
 
