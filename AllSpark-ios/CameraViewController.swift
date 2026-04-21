@@ -19,12 +19,12 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     // Image processing
     private let context = CIContext()
-    
+
     // Privacy Filtering
     private var privacyMode: String = "segmentation"
     private var personSegmentationRequest: VNGeneratePersonSegmentationRequest!
     private var personMaskBuffer: CVPixelBuffer?
-    
+
     // Body Pose Detection
     private var bodyPoseRequest: VNDetectHumanBodyPoseRequest!
     private var detectedBodyPoses: [VNHumanBodyPoseObservation] = []
@@ -130,30 +130,30 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         let overlay = UIView(frame: view.bounds)
         overlay.backgroundColor = AppConstants.Colors.backgroundBaseUI.withAlphaComponent(AppConstants.UI.overlayOpacityDark)
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        
+
         let indicator = UIActivityIndicatorView(style: .large)
         indicator.color = .white
         indicator.translatesAutoresizingMaskIntoConstraints = false
         indicator.startAnimating()
-        
+
         let label = UILabel()
         label.text = "Initializing Privacy Models..."
         label.textColor = .white
         label.font = .systemFont(ofSize: AppConstants.UI.fontSizeStandard, weight: .medium)
         label.translatesAutoresizingMaskIntoConstraints = false
-        
+
         let stack = UIStackView(arrangedSubviews: [indicator, label])
         stack.axis = .vertical
         stack.spacing = AppConstants.UI.spacingMedium
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
-        
+
         overlay.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor)
         ])
-        
+
         view.addSubview(overlay)
         self.loadingOverlay = overlay
         self.activityIndicator = indicator
@@ -265,11 +265,11 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         connectionHostingController = UIHostingController(rootView: buttonView)
         connectionHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         connectionHostingController.view.backgroundColor = .clear
-        
+
         addChild(connectionHostingController)
         view.addSubview(connectionHostingController.view)
         connectionHostingController.didMove(toParent: self)
-        
+
         NSLayoutConstraint.activate([
             connectionHostingController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: AppConstants.UI.paddingStandard),
             connectionHostingController.view.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: AppConstants.UI.offsetTrailingStatus)
@@ -470,10 +470,20 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         do {
             assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: fileType)
 
+            var outputWidth = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow
+            var outputHeight = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
+
+#if targetEnvironment(simulator)
+            if let presentationSize = simulatorPlayer?.currentItem?.presentationSize, presentationSize.width > 0 {
+                outputWidth = Int(presentationSize.width)
+                outputHeight = Int(presentationSize.height)
+            }
+#endif
+
             let outputSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow,
-                AVVideoHeightKey: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
+                AVVideoWidthKey: outputWidth,
+                AVVideoHeightKey: outputHeight
             ]
 
             assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
@@ -484,8 +494,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
                 let sourcePixelBufferAttributes: [String: Any] = [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow,
-                    kCVPixelBufferHeightKey as String: videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
+                    kCVPixelBufferWidthKey as String: outputWidth,
+                    kCVPixelBufferHeightKey as String: outputHeight
                 ]
 
                 adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
@@ -928,11 +938,11 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
     private func setupPrivacyFiltering() {
         self.privacyMode = UserDefaults.standard.string(forKey: "privacyMode") ?? "segmentation"
-        
+
         let segRequest = VNGeneratePersonSegmentationRequest()
         segRequest.qualityLevel = .balanced // Balanced is much faster for real-time video than .accurate
         self.personSegmentationRequest = segRequest
-        
+
         self.bodyPoseRequest = VNDetectHumanBodyPoseRequest()
     }
 
@@ -940,11 +950,11 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         if privacyMode == "segmentation" {
             guard let maskBuffer = personMaskBuffer else { return image }
             let maskImage = CIImage(cvPixelBuffer: maskBuffer)
-            
+
             let scaleX = image.extent.width / maskImage.extent.width
             let scaleY = image.extent.height / maskImage.extent.height
             let scaledMask = maskImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-            
+
             if let pixelateFilter = CIFilter(name: "CIPixellate") {
                 pixelateFilter.setValue(image, forKey: kCIInputImageKey)
                 pixelateFilter.setValue(NSNumber(value: Float(AppConstants.Privacy.pixelationScale)), forKey: kCIInputScaleKey)
@@ -1082,6 +1092,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         if let cgImage = context.createCGImage(processedImage, from: processedImage.extent) {
             let uiImage = UIImage(cgImage: cgImage)
             self.imageView.image = uiImage
+
+            if let overlay = self.loadingOverlay {
+                self.loadingOverlay = nil
+                UIView.animate(withDuration: 0.3, animations: { [weak overlay] in
+                    overlay?.alpha = 0
+                }) { [weak overlay] _ in
+                    overlay?.removeFromSuperview()
+                }
+            }
         }
     }
 #endif
@@ -1237,7 +1256,7 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.imageView.image = uiImage
-                
+
                 if let overlay = self.loadingOverlay {
                     self.loadingOverlay = nil // Nullify immediately to prevent duplicate animations
                     UIView.animate(withDuration: 0.3, animations: { [weak overlay] in
