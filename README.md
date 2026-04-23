@@ -64,8 +64,8 @@ For each recording chunk at epoch timestamp `{ts}`, the app produces separate co
 | Timestamps | `timestamps_{ts}.txt` | `timestampFormat ≠ "none"` |
 
 > [!IMPORTANT]
-> **Depth capture** requires a LiDAR-equipped device (iPhone Pro/iPad Pro) with the **back camera** selected. On devices without LiDAR or when using the front camera, depth frames are silently skipped.
-> **Pose data** uses CoreMotion (device orientation via rotation matrix, gravity, and user acceleration). This provides 3-DOF orientation; for full 6-DOF (position + orientation), ARKit integration would be required.
+> **Depth capture** requires a LiDAR-equipped device (iPhone Pro/iPad Pro) with the **back camera** selected. Depth is captured via **ARKit** (`ARWorldTrackingConfiguration` with `.sceneDepth` frame semantics), not AVFoundation. On devices without LiDAR or when using the front camera, depth frames are silently skipped.
+> **Pose data** uses ARKit 6DoF camera transforms (4×4 camera-to-world matrix + intrinsics) when the back camera with depth is active. On the front camera, it falls back to CoreMotion 3DoF (rotation matrix, gravity, user acceleration).
 
 ## API & WebSocket Communication
 
