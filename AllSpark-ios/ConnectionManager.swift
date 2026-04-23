@@ -525,7 +525,7 @@ class ConnectionManager: NSObject, ObservableObject {
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
             // Get limit from config
-            var limitMB = AppConstants.Storage.defaultVideoBufferMaxMB
+            var limitMB = AppConstants.ClientConfig.defaultVideoBufferMaxMB
             if let config = self?.clientConfig,
                let configLimit = config["videoBufferMaxMB"] as? Int {
                 limitMB = configLimit

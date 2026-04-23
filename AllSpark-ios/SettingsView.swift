@@ -129,6 +129,7 @@ struct SettingsView: View {
                     Picker("Mode", selection: $privacyMode) {
                         Text("Person Segmentation (Default)").tag("segmentation")
                         Text("Body Pose Detection (Limbs)").tag("pose")
+                        Text("No Privacy Filter").tag("none")
                     }
                 }
             }

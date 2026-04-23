@@ -20,6 +20,37 @@ See also: **[CHANGELOG.md](CHANGELOG.md)** · **[RELEASE.md](RELEASE.md)**
 - Server-managed communications policy with app-level enforcement
 - Configurable video format (MP4/MOV) synced from server
 
+## Client Configuration
+
+The iOS application receives a `clientConfig` JSON object from the Edge Server to remotely configure capture formats and sensor streams. The new architecture separates sensor streams to allow for multimodal VLM/LLM analysis on the edge server.
+
+### Default Sensor Streams
+
+Here are the default expectations and supported formats:
+
+```json
+"clientConfig": {
+  "fps": 30,
+  "videoChunkDurationMs": 10000,
+  "videoBufferMaxMB": 16000,
+  "videoFormat": "mp4",
+  "audioFormat": "wav",
+  "depthFormat": "png",
+  "poseFormat": "json",
+  "timestampFormat": "txt"
+}
+```
+
+### Format Options
+- **`videoFormat`** (rgb only, no audio): `"mp4"`, `"mov"`, `"none"`
+- **`audioFormat`**: `"wav"`, `"m4a"`, `"none"`
+- **`depthFormat`**: `"png"`, `"exr"`, `"none"`
+- **`poseFormat`**: `"json"`, `"none"`
+- **`timestampFormat`**: `"txt"`, `"none"`
+
+> [!NOTE]
+> Setting any format to `"none"` will remotely disable collection from that specific sensor. This allows operators to save bandwidth and compute resources when certain streams are not needed for their agentic pipelines.
+
 ## API & WebSocket Communication
 
 See the **[Endpoints Documentation](https://github.com/WiseLabCMU/AllSpark-edge-server/blob/master/docs/endpoints.md)** in the AllSpark Edge Server repository.

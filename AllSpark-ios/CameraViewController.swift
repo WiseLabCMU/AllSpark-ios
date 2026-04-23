@@ -51,7 +51,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var sessionAtSourceTime: CMTime?
     private var videoURL: URL?
     private var videoFormat: AVFileType = .mp4 // Default format
-    private var recordingDurationMs: Int = AppConstants.Video.defaultChunkDurationMs
+    private var recordingDurationMs: Int = AppConstants.ClientConfig.defaultChunkDurationMs
     private var autoStopTimer: Timer?
     private var shouldUploadAfterRecording = false
     private let recordingStateLock = NSLock()
@@ -335,7 +335,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                     // We upload if there is ANY overlap.
 
                     // Get current chunk duration from config
-                    var chunkDuration = Double(AppConstants.Video.defaultChunkDurationMs) / 1000.0
+                    var chunkDuration = Double(AppConstants.ClientConfig.defaultChunkDurationMs) / 1000.0
                     if let config = ConnectionManager.shared.clientConfig,
                        let durationMs = config["videoChunkDurationMs"] as? Int {
                         chunkDuration = Double(durationMs) / 1000.0
@@ -545,7 +545,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 }
 
                 // Chunk Timer
-                var chunkMs = AppConstants.Video.defaultChunkDurationMs
+                var chunkMs = AppConstants.ClientConfig.defaultChunkDurationMs
                 if let config = ConnectionManager.shared.clientConfig,
                    let ms = config["videoChunkDurationMs"] as? Int {
                     chunkMs = ms
@@ -689,7 +689,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                    }
 
                    let asset = AVURLAsset(url: urlToProcess)
-                   var fps: Double = AppConstants.Video.defaultFPS
+                   var fps: Double = AppConstants.ClientConfig.defaultFPS
                    var width: Double = 0
                    var height: Double = 0
 

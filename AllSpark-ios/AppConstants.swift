@@ -92,10 +92,8 @@ enum AppConstants {
     }
 
     enum Video {
-        static let defaultChunkDurationMs: Int = 10000
         static let dimensionHigh: Int = 1920
         static let dimensionLow: Int = 1080
-        static let defaultFPS: Double = 30.0
     }
 
     enum Audio {
@@ -109,7 +107,17 @@ enum AppConstants {
     }
 
     enum Storage {
-        static let defaultVideoBufferMaxMB: Int = 16000
         static let bytesPerMB: Int64 = 1024 * 1024
+    }
+
+    enum ClientConfig {
+        static let defaultChunkDurationMs: Int = 10000
+        static let defaultFPS: Double = 30.0
+        static let defaultVideoBufferMaxMB: Int = 16000
+        static let defaultVideoFormat: String = "mp4"
+        static let defaultAudioFormat: String = "wav"
+        static let defaultDepthFormat: String = "png"
+        static let defaultPoseFormat: String = "json"
+        static let defaultTimestampFormat: String = "txt"
     }
 }
