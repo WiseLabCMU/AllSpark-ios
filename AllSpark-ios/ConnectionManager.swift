@@ -453,8 +453,17 @@ class ConnectionManager: NSObject, ObservableObject {
 
             let filename = fileURL.lastPathComponent
             let fileExtension = (filename as NSString).pathExtension.lowercased()
-            var mimetype = fileExtension == "mp4" ? "video/mp4" : "video/quicktime"
-            if fileExtension == "txt" { mimetype = "text/plain" }
+            var mimetype: String
+            switch fileExtension {
+            case "mp4": mimetype = "video/mp4"
+            case "mov": mimetype = "video/quicktime"
+            case "wav": mimetype = "audio/wav"
+            case "m4a": mimetype = "audio/mp4"
+            case "txt": mimetype = "text/plain"
+            case "json": mimetype = "application/json"
+            case "png": mimetype = "image/png"
+            default: mimetype = "application/octet-stream"
+            }
 
             let metadata: [String: Any] = [
                 "type": "upload",
@@ -565,12 +574,16 @@ class ConnectionManager: NSObject, ObservableObject {
                             print("Deleted old video to free space: \(file.url.lastPathComponent)")
 
                             // Clean up companion timestamps file
-                            let txtName = file.url.lastPathComponent
-                                .replacingOccurrences(of: "chunk_", with: "timestamps_")
-                                .replacingOccurrences(of: ".mp4", with: ".txt")
-                                .replacingOccurrences(of: ".mov", with: ".txt")
-                            let txtURL = file.url.deletingLastPathComponent().appendingPathComponent(txtName)
+                            let baseName = file.url.deletingPathExtension().lastPathComponent
+                            let chunkTimestamp = baseName.replacingOccurrences(of: "chunk_", with: "")
+                            let txtURL = file.url.deletingLastPathComponent().appendingPathComponent("timestamps_\(chunkTimestamp).txt")
                             try? FileManager.default.removeItem(at: txtURL)
+
+                            // Clean up companion audio files
+                            for audioExt in ["wav", "m4a"] {
+                                let audioURL = file.url.deletingLastPathComponent().appendingPathComponent("audio_\(chunkTimestamp).\(audioExt)")
+                                try? FileManager.default.removeItem(at: audioURL)
+                            }
                         } else {
                             break
                         }

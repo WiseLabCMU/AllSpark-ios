@@ -35,14 +35,17 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var simulatorDisplayLink: CADisplayLink?
 #endif
 
-    // Video Recording
+    // Video Recording (RGB only — no audio track)
     private var assetWriter: AVAssetWriter?
     private var assetWriterInput: AVAssetWriterInput?
-    private var audioWriterInput: AVAssetWriterInput?
 
     private var adapter: AVAssetWriterInputPixelBufferAdaptor?
 
-    // Add variables for timestamp tracking
+    // Separate Audio Recording
+    private var audioRecorder: AVAudioRecorder?
+    private var audioURL: URL?
+
+    // Timestamp tracking
     private var frameTimestampsMs: [String] = []
     private var chunkFirstFrameTimestampMs: Int?
     private var frameCount: Int = 0
@@ -55,6 +58,11 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var autoStopTimer: Timer?
     private var shouldUploadAfterRecording = false
     private let recordingStateLock = NSLock()
+
+    // Server-driven sensor format config (read from clientConfig)
+    private var activeVideoFormat: String = AppConstants.ClientConfig.defaultVideoFormat
+    private var activeAudioFormat: String = AppConstants.ClientConfig.defaultAudioFormat
+    private var activeTimestampFormat: String = AppConstants.ClientConfig.defaultTimestampFormat
 
     // WebSocket Connection
     private var cancellables = Set<AnyCancellable>()
@@ -318,7 +326,9 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         do {
             let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsPath, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)
 
-            let recordingFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("chunk_") && $0.pathExtension == "mp4" }
+            let recordingFiles = fileURLs.filter {
+                $0.lastPathComponent.hasPrefix("chunk_") && ($0.pathExtension == "mp4" || $0.pathExtension == "mov")
+            }
 
             print("Found \(recordingFiles.count) recordings. Checking overlap with \(startTime) - \(endTime)")
 
@@ -327,12 +337,6 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                 let parts = fileURL.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
                 if let lastPart = parts.last, let parsedTimestamp = Double(lastPart) {
                     let fileTimestamp = parsedTimestamp / 1000.0
-
-                    // We assume the file duration is approximately the chunk duration
-                    // For better accuracy, we could use AVAsset, but that's heavier.
-                    // Let's rely on the config duration for estimation or just the start time.
-                    // A file 'covers' [timestamp, timestamp + chunkDuration]
-                    // We upload if there is ANY overlap.
 
                     // Get current chunk duration from config
                     var chunkDuration = Double(AppConstants.ClientConfig.defaultChunkDurationMs) / 1000.0
@@ -344,16 +348,26 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                     let fileEndTime = fileTimestamp + chunkDuration
 
                     // Check intersection
-                    // File Start < Request End AND File End > Request Start
                     if fileTimestamp < endTime && fileEndTime > startTime {
                         print("Uploading file matching range: \(fileURL.lastPathComponent)")
                         uploadVideo(at: fileURL)
 
-                        let urlName = fileURL.deletingPathExtension().lastPathComponent
-                        let timestampsFilename = urlName.replacingOccurrences(of: "chunk_", with: "timestamps_") + ".txt"
-                        let timestampsURL = fileURL.deletingLastPathComponent().appendingPathComponent(timestampsFilename)
+                        let chunkTimestamp = parts.last ?? ""
+
+                        // Upload companion timestamps file
+                        let timestampsFilename = "timestamps_\(chunkTimestamp).txt"
+                        let timestampsURL = documentsPath.appendingPathComponent(timestampsFilename)
                         if FileManager.default.fileExists(atPath: timestampsURL.path) {
                             uploadVideo(at: timestampsURL)
+                        }
+
+                        // Upload companion audio file (wav or m4a)
+                        for audioExt in ["wav", "m4a"] {
+                            let audioFilename = "audio_\(chunkTimestamp).\(audioExt)"
+                            let audioURL = documentsPath.appendingPathComponent(audioFilename)
+                            if FileManager.default.fileExists(atPath: audioURL.path) {
+                                uploadVideo(at: audioURL)
+                            }
                         }
                     }
                 }
@@ -453,119 +467,156 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private func startRecordingChunk() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
-        // Load video format preference from UserDefaults
-        let formatString = UserDefaults.standard.string(forKey: "videoFormat") ?? "mp4"
-        let fileExtension = formatString == "mov" ? "mov" : "mp4"
-        let fileType: AVFileType = formatString == "mov" ? .mov : .mp4
+        // Read active formats from server config (or use defaults)
+        if let config = ConnectionManager.shared.clientConfig {
+            activeVideoFormat = config["videoFormat"] as? String ?? AppConstants.ClientConfig.defaultVideoFormat
+            activeAudioFormat = config["audioFormat"] as? String ?? AppConstants.ClientConfig.defaultAudioFormat
+            activeTimestampFormat = config["timestampFormat"] as? String ?? AppConstants.ClientConfig.defaultTimestampFormat
+        }
 
         let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-        let videoName = "tmp_recording_\(timestampMs).\(fileExtension)"
-        videoURL = documentsPath.appendingPathComponent(videoName)
 
-        guard let videoURL = videoURL else { return }
+        // --- Video Writer (RGB only, no audio track) ---
+        let videoEnabled = activeVideoFormat != "none"
+        if videoEnabled {
+            let fileExtension = activeVideoFormat == "mov" ? "mov" : "mp4"
+            let fileType: AVFileType = activeVideoFormat == "mov" ? .mov : .mp4
 
-        // Remove existing file if necessary
-        try? FileManager.default.removeItem(at: videoURL)
+            let videoName = "tmp_recording_\(timestampMs).\(fileExtension)"
+            videoURL = documentsPath.appendingPathComponent(videoName)
 
-        do {
-            assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: fileType)
+            guard let videoURL = videoURL else { return }
+            try? FileManager.default.removeItem(at: videoURL)
 
-            var outputWidth = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow
-            var outputHeight = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
+            do {
+                assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: fileType)
+
+                var outputWidth = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow
+                var outputHeight = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
 
 #if targetEnvironment(simulator)
-            if let presentationSize = simulatorPlayer?.currentItem?.presentationSize, presentationSize.width > 0 {
-                outputWidth = Int(presentationSize.width)
-                outputHeight = Int(presentationSize.height)
-            }
+                if let presentationSize = simulatorPlayer?.currentItem?.presentationSize, presentationSize.width > 0 {
+                    outputWidth = Int(presentationSize.width)
+                    outputHeight = Int(presentationSize.height)
+                }
 #endif
 
-            let outputSettings: [String: Any] = [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: outputWidth,
-                AVVideoHeightKey: outputHeight
-            ]
-
-            assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
-            assetWriterInput?.expectsMediaDataInRealTime = true
-
-            if let input = assetWriterInput, assetWriter!.canAdd(input) {
-                assetWriter!.add(input)
-
-                let sourcePixelBufferAttributes: [String: Any] = [
-                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: outputWidth,
-                    kCVPixelBufferHeightKey as String: outputHeight
+                let outputSettings: [String: Any] = [
+                    AVVideoCodecKey: AVVideoCodecType.h264,
+                    AVVideoWidthKey: outputWidth,
+                    AVVideoHeightKey: outputHeight
                 ]
 
-                adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
+                assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+                assetWriterInput?.expectsMediaDataInRealTime = true
 
-                // Setup audio writer input
-                let audioOutputSettings: [String: Any] = [
+                if let input = assetWriterInput, assetWriter!.canAdd(input) {
+                    assetWriter!.add(input)
+
+                    let sourcePixelBufferAttributes: [String: Any] = [
+                        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                        kCVPixelBufferWidthKey as String: outputWidth,
+                        kCVPixelBufferHeightKey as String: outputHeight
+                    ]
+
+                    adapter = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: sourcePixelBufferAttributes)
+
+                    // No audio input added — audio is recorded separately
+                    assetWriter!.startWriting()
+                } else {
+                    print("Failed to add video input to asset writer")
+                }
+            } catch {
+                print("Failed to setup asset writer: \(error)")
+            }
+        }
+
+        // --- Separate Audio Recorder (WAV or M4A) ---
+        let audioEnabled = activeAudioFormat != "none"
+        if audioEnabled {
+            let audioExt = activeAudioFormat == "m4a" ? "m4a" : "wav"
+            let audioName = "tmp_audio_\(timestampMs).\(audioExt)"
+            audioURL = documentsPath.appendingPathComponent(audioName)
+
+            guard let audioURL = audioURL else { return }
+            try? FileManager.default.removeItem(at: audioURL)
+
+            var audioSettings: [String: Any]
+            if activeAudioFormat == "m4a" {
+                audioSettings = [
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVNumberOfChannelsKey: 1,
+                    AVNumberOfChannelsKey: AppConstants.Audio.channels,
                     AVSampleRateKey: AppConstants.Audio.sampleRate,
                     AVEncoderBitRateKey: AppConstants.Audio.bitRate
                 ]
-
-                audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
-                audioWriterInput?.expectsMediaDataInRealTime = true
-
-                if let audioInput = audioWriterInput, assetWriter!.canAdd(audioInput) {
-                    assetWriter!.add(audioInput)
-                } else {
-                    print("Failed to add audio input to asset writer")
-                }
-
-                assetWriter!.startWriting()
-                // assetWriter!.startSession(atSourceTime: .zero) // REMOVED: Will start session on first frame
-
-                recordingStateLock.lock()
-                isRecording = true
-                sessionAtSourceTime = nil
-                chunkFirstFrameTimestampMs = nil
-                frameTimestampsMs.removeAll()
-                frameCount = 0
-                recordingStateLock.unlock()
-
-                print("Started recording chunk: \(videoName)")
-
-                // Check capture modes
-                var modes: [String] = []
-                if self.assetWriterInput != nil { modes.append("Video") }
-                if self.audioWriterInput != nil { modes.append("Audio") }
-                let modesText = "Capturing: " + modes.joined(separator: " + ")
-
-                // Reset UI Timer for new chunk
-                DispatchQueue.main.async { [weak self] in
-                    self?.captureModesLabel.text = modesText
-                    self?.recordingDuration = 0
-                    self?.updateTimerDisplay()
-                    self?.recordingIndicatorContainer.isHidden = false
-                }
-
-                // Chunk Timer
-                var chunkMs = AppConstants.ClientConfig.defaultChunkDurationMs
-                if let config = ConnectionManager.shared.clientConfig,
-                   let ms = config["videoChunkDurationMs"] as? Int {
-                    chunkMs = ms
-                }
-                let chunkSeconds = Double(chunkMs) / 1000.0
-
-                // Schedule next chunk
-                DispatchQueue.main.async { [weak self] in
-                    self?.autoStopTimer?.invalidate()
-                    print("Scheduling timer for \(chunkSeconds)s on thread: \(Thread.current.description)")
-                    self?.autoStopTimer = Timer.scheduledTimer(withTimeInterval: chunkSeconds, repeats: false) { [weak self] _ in
-                        print("Timer fired! Chunk complete, cycling...")
-                        self?.cycleRecordingChunk()
-                    }
-                }
             } else {
-                print("Failed to add video input to asset writer")
+                // WAV (Linear PCM)
+                audioSettings = [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVNumberOfChannelsKey: AppConstants.Audio.channels,
+                    AVSampleRateKey: AppConstants.Audio.sampleRate,
+                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false
+                ]
             }
-        } catch {
-            print("Failed to setup asset writer: \(error)")
+
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+                try session.setActive(true)
+
+                audioRecorder = try AVAudioRecorder(url: audioURL, settings: audioSettings)
+                audioRecorder?.record()
+                print("Started audio recording: \(audioName)")
+            } catch {
+                print("Failed to setup audio recorder: \(error)")
+            }
+        }
+
+        // --- Recording State ---
+        recordingStateLock.lock()
+        isRecording = true
+        sessionAtSourceTime = nil
+        chunkFirstFrameTimestampMs = nil
+        frameTimestampsMs.removeAll()
+        frameCount = 0
+        recordingStateLock.unlock()
+
+        print("Started recording chunk at \(timestampMs)")
+
+        // Capture modes label
+        var modes: [String] = []
+        if videoEnabled { modes.append("Video") }
+        if audioEnabled { modes.append("Audio") }
+        if activeTimestampFormat != "none" { modes.append("Timestamps") }
+        let modesText = modes.isEmpty ? "Sensors disabled" : "Capturing: " + modes.joined(separator: " + ")
+
+        // Reset UI Timer for new chunk
+        DispatchQueue.main.async { [weak self] in
+            self?.captureModesLabel.text = modesText
+            self?.recordingDuration = 0
+            self?.updateTimerDisplay()
+            self?.recordingIndicatorContainer.isHidden = false
+        }
+
+        // Chunk Timer
+        var chunkMs = AppConstants.ClientConfig.defaultChunkDurationMs
+        if let config = ConnectionManager.shared.clientConfig,
+           let ms = config["videoChunkDurationMs"] as? Int {
+            chunkMs = ms
+        }
+        let chunkSeconds = Double(chunkMs) / 1000.0
+
+        // Schedule next chunk
+        DispatchQueue.main.async { [weak self] in
+            self?.autoStopTimer?.invalidate()
+            print("Scheduling timer for \(chunkSeconds)s on thread: \(Thread.current.description)")
+            self?.autoStopTimer = Timer.scheduledTimer(withTimeInterval: chunkSeconds, repeats: false) { [weak self] _ in
+                print("Timer fired! Chunk complete, cycling...")
+                self?.cycleRecordingChunk()
+            }
         }
     }
 
@@ -601,28 +652,51 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func stopRecordingChunk(completion: (() -> Void)? = nil) {
-        // If we are already not recording (e.g. user pressed stop), we might still need to close the writer
-        // but 'isRecording' is the flag for the *session*.
-        // We need to be careful. usage:
-        // cycle: isRecording=true. stopChunk -> startChunk.
-        // user stop: isRecording=false. stopChunk.
-
-        // Note: isRecording is used in recordVideoFrame guards.
-        // If we set isRecording=false in stopRecording, then recordVideoFrame stops sending frames.
-        // Then we call stopRecordingChunk to close the writer.
-
         recordingStateLock.lock()
-        // Ensure we stop accepting frames immediately
         isRecording = false
-
-        guard let writer = assetWriter else {
-            recordingStateLock.unlock()
-            completion?()
-            return
-        }
+        let chunkTimeMs = chunkFirstFrameTimestampMs ?? Int(Date().timeIntervalSince1970 * 1000)
+        let timestampsData = frameTimestampsMs.joined(separator: "\n")
         recordingStateLock.unlock()
 
-        // recordingTimer is now managed by stopRecording()
+        // --- Stop separate audio recorder ---
+        let savedAudioURL = audioURL
+        if let recorder = audioRecorder, recorder.isRecording {
+            recorder.stop()
+            print("Stopped audio recorder")
+        }
+        audioRecorder = nil
+
+        // Rename audio file to final name
+        if let srcAudioURL = savedAudioURL, FileManager.default.fileExists(atPath: srcAudioURL.path) {
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let audioExt = srcAudioURL.pathExtension
+            let audioFinalName = "audio_\(chunkTimeMs).\(audioExt)"
+            let audioFinalURL = documentsPath.appendingPathComponent(audioFinalName)
+            try? FileManager.default.removeItem(at: audioFinalURL)
+            do {
+                try FileManager.default.moveItem(at: srcAudioURL, to: audioFinalURL)
+                print("Audio saved: \(audioFinalName)")
+            } catch {
+                print("Error renaming audio file: \(error)")
+            }
+        }
+        audioURL = nil
+
+        // --- Write timestamps file (if enabled) ---
+        if activeTimestampFormat != "none" && !timestampsData.isEmpty {
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let timestampsFilename = "timestamps_\(chunkTimeMs).txt"
+            let timestampsURL = documentsPath.appendingPathComponent(timestampsFilename)
+            try? timestampsData.write(to: timestampsURL, atomically: true, encoding: .utf8)
+            print("Timestamps saved: \(timestampsFilename)")
+        }
+
+        // --- Stop video writer ---
+        guard let writer = assetWriter else {
+            completion?()
+            ConnectionManager.shared.manageVideoStorage()
+            return
+        }
 
         if writer.status == .failed {
             print("Asset writer status is failed: \(String(describing: writer.error))")
@@ -635,15 +709,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         }
 
         assetWriterInput?.markAsFinished()
-        audioWriterInput?.markAsFinished()
 
-        // We need to capture the URL locally before nil-ing out
         let savedURL = videoURL
-
-        recordingStateLock.lock()
-        let chunkTimeMs = chunkFirstFrameTimestampMs ?? Int(Date().timeIntervalSince1970 * 1000)
-        let timestampsData = frameTimestampsMs.joined(separator: "\n")
-        recordingStateLock.unlock()
 
         writer.finishWriting { [weak self] in
             print("Finish writing completion block entered.")
@@ -654,7 +721,6 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             }
 
             if let url = savedURL {
-               // Rename the file to chunk_{timestamp}.mp4
                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                let format = url.pathExtension
                let newFilename = "chunk_\(chunkTimeMs).\(format)"
@@ -667,18 +733,12 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                    print("Error renaming video chunk: \(error)")
                }
 
-               // Write timestamps file
-               let timestampsFilename = "timestamps_\(chunkTimeMs).txt"
-               let timestampsURL = documentsPath.appendingPathComponent(timestampsFilename)
-               try? timestampsData.write(to: timestampsURL, atomically: true, encoding: .utf8)
-
-               print("Chunk saved: \(newFilename) and \(timestampsFilename)")
+               print("Chunk saved: \(newFilename)")
 
                let endTime = Date().timeIntervalSince1970
                let startTime = Double(chunkTimeMs) / 1000.0
-               // Determine camera from original name since we drop it in final name
                let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "_")
-               let camera = parts.count > 2 ? parts[parts.count - 2] : "unknown" // "front" or "back"
+               let camera = parts.count > 2 ? parts[parts.count - 2] : "unknown"
 
                let urlToProcess = finalURL
 
@@ -719,21 +779,18 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                            dimensions: dimensions
                        )
                    }
-
                }
             }
 
             self.recordingStateLock.lock()
             self.assetWriter = nil
             self.assetWriterInput = nil
-            self.audioWriterInput = nil
             self.adapter = nil
             self.recordingStateLock.unlock()
 
             completion?()
         }
 
-        // Manage storage after saving
         ConnectionManager.shared.manageVideoStorage()
     }
 
@@ -947,6 +1004,9 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 
     private func applyPrivacyBlur(to image: CIImage) -> CIImage {
+        // No privacy filter — skip all Vision processing
+        if privacyMode == "none" { return image }
+
         if privacyMode == "segmentation" {
             guard let maskBuffer = personMaskBuffer else { return image }
             let maskImage = CIImage(cvPixelBuffer: maskBuffer)
@@ -1070,18 +1130,20 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-        let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
-        do {
-            if privacyMode == "segmentation" {
-                try handler.perform([personSegmentationRequest])
-                if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
-                    self.personMaskBuffer = result.pixelBuffer
+        if privacyMode != "none" {
+            let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
+            do {
+                if privacyMode == "segmentation" {
+                    try handler.perform([personSegmentationRequest])
+                    if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                        self.personMaskBuffer = result.pixelBuffer
+                    }
+                } else {
+                    try handler.perform([bodyPoseRequest])
+                    self.detectedBodyPoses = bodyPoseRequest.results ?? []
                 }
-            } else {
-                try handler.perform([bodyPoseRequest])
-                self.detectedBodyPoses = bodyPoseRequest.results ?? []
-            }
-        } catch { }
+            } catch { }
+        }
 
         let processedImage = applyPrivacyBlur(to: ciImage)
 
@@ -1105,23 +1167,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     }
 #endif
 
-    private func recordAudioFrame(_ sampleBuffer: CMSampleBuffer) {
-        recordingStateLock.lock()
-        defer { recordingStateLock.unlock() }
-
-        guard isRecording, let audioInput = audioWriterInput, audioInput.isReadyForMoreMediaData else { return }
-
-        if sessionAtSourceTime == nil {
-            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            sessionAtSourceTime = timestamp
-            assetWriter?.startSession(atSourceTime: timestamp)
-        }
-
-        let success = audioInput.append(sampleBuffer)
-        if !success {
-            print("Failed to append audio buffer. Writer status: \(String(describing: assetWriter?.status.rawValue)) Error: \(String(describing: assetWriter?.error))")
-        }
-    }
+    // Audio is now recorded separately via AVAudioRecorder (see startRecordingChunk)
 
     private func recordVideoFrame(_ image: CIImage, timestamp: CMTime) {
         // 1. Quick check
@@ -1212,9 +1258,8 @@ extension CameraViewController {
 
 extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Handle audio output
+        // Audio is recorded separately via AVAudioRecorder — ignore audio capture output
         if output == audioOutput {
-            recordAudioFrame(sampleBuffer)
             return
         }
 
@@ -1225,21 +1270,23 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
 
-        // Perform privacy detection
-        let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
+        // Perform privacy detection (skip when disabled)
+        if privacyMode != "none" {
+            let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
 
-        do {
-            if privacyMode == "segmentation" {
-                try handler.perform([personSegmentationRequest])
-                if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
-                    self.personMaskBuffer = result.pixelBuffer
+            do {
+                if privacyMode == "segmentation" {
+                    try handler.perform([personSegmentationRequest])
+                    if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                        self.personMaskBuffer = result.pixelBuffer
+                    }
+                } else {
+                    try handler.perform([bodyPoseRequest])
+                    self.detectedBodyPoses = bodyPoseRequest.results ?? []
                 }
-            } else {
-                try handler.perform([bodyPoseRequest])
-                self.detectedBodyPoses = bodyPoseRequest.results ?? []
+            } catch {
+                print("Failed to perform privacy detection: \(error)")
             }
-        } catch {
-            print("Failed to perform privacy detection: \(error)")
         }
 
         // Apply blur to humans
