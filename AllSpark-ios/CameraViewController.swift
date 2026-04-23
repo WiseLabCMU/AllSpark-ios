@@ -583,8 +583,28 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             do {
                 assetWriter = try AVAssetWriter(outputURL: videoURL, fileType: fileType)
 
-                var outputWidth = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionHigh : AppConstants.Video.dimensionLow
-                var outputHeight = videoRotationAngle == 0 || videoRotationAngle == 180 ? AppConstants.Video.dimensionLow : AppConstants.Video.dimensionHigh
+                // Read exact active video dimensions to prevent squishing or scaling artifacts
+                var activeWidth = AppConstants.Video.dimensionHigh
+                var activeHeight = AppConstants.Video.dimensionLow
+
+                if useARKitCapture, let arConfig = arSession?.configuration as? ARWorldTrackingConfiguration {
+                    // ARKit frames are always provided in their native unrotated sensor orientation.
+                    // We must NEVER swap these dimensions to preserve the strict geometric mapping to ARKit's camera intrinsics.
+                    activeWidth = Int(arConfig.videoFormat.imageResolution.width)
+                    activeHeight = Int(arConfig.videoFormat.imageResolution.height)
+                } else if !useARKitCapture, let videoInput = captureSession?.inputs.compactMap({ $0 as? AVCaptureDeviceInput }).first(where: { $0.device.hasMediaType(.video) }) {
+                    let dimensions = CMVideoFormatDescriptionGetDimensions(videoInput.device.activeFormat.formatDescription)
+                    let w = Int(dimensions.width)
+                    let h = Int(dimensions.height)
+                    
+                    // AVFoundation physically rotates the buffer if we set connection.videoRotationAngle.
+                    let isRotated = (videoRotationAngle == 90 || videoRotationAngle == 270)
+                    activeWidth = isRotated ? h : w
+                    activeHeight = isRotated ? w : h
+                }
+
+                var outputWidth = activeWidth
+                var outputHeight = activeHeight
 
 #if targetEnvironment(simulator)
                 if let presentationSize = simulatorPlayer?.currentItem?.presentationSize, presentationSize.width > 0 {
@@ -1144,6 +1164,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
         let segRequest = VNGeneratePersonSegmentationRequest()
         segRequest.qualityLevel = .balanced // Balanced is much faster for real-time video than .accurate
+        segRequest.outputPixelFormat = kCVPixelFormatType_OneComponent8
         self.personSegmentationRequest = segRequest
 
         self.bodyPoseRequest = VNDetectHumanBodyPoseRequest()
@@ -1531,9 +1552,10 @@ extension CameraViewController: ARSessionDelegate {
         isProcessingARFrame = true
 
         // ── Lightweight work (stays on delegate queue) ──────────────────
-        // Grab the frame timestamp and recording state before going async.
+        // Grab the frame timestamp, rotation angle, and recording state before going async.
         let frameTimestamp = frame.timestamp
         let cmTimestamp = CMTimeMakeWithSeconds(frameTimestamp, preferredTimescale: 600)
+        let currentRotationAngle = videoRotationAngle
 
         // Snapshot recording state
         recordingStateLock.lock()
@@ -1592,7 +1614,12 @@ extension CameraViewController: ARSessionDelegate {
             self.recordVideoFrame(processedImage, timestamp: cmTimestamp)
 
             // Store raw depth bytes (PNG encoding deferred to saveDepthFrames)
-            if let depthCopy = rawDepthCopy, currentFrameCount >= 0 {
+            if var depthCopy = rawDepthCopy, currentFrameCount >= 0 {
+                // Zero out the depth map data where humans are detected
+                if self.privacyMode != "none" {
+                    self.applyPrivacyToDepth(rawData: &depthCopy.data, width: depthCopy.width, height: depthCopy.height)
+                }
+
                 self.depthFrames.append((
                     index: currentFrameCount,
                     timestampMs: depthNtpTimeMs,
@@ -1627,7 +1654,15 @@ extension CameraViewController: ARSessionDelegate {
 
             // Display — render on background, dispatch UIImage to main
             if let cgImage = self.context.createCGImage(processedImage, from: processedImage.extent) {
-                let uiImage = UIImage(cgImage: cgImage)
+                let orientation: UIImage.Orientation
+                switch currentRotationAngle {
+                case 90: orientation = .right
+                case 180: orientation = .down
+                case 270: orientation = .left
+                default: orientation = .up
+                }
+
+                let uiImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     self.imageView.image = uiImage
@@ -1666,6 +1701,86 @@ extension CameraViewController: ARSessionDelegate {
 
         let data = Data(bytes: uint16Buffer, count: count * 2)
         return (width, height, data)
+    }
+
+    /// Zero out pixels in the raw UInt16 depth buffer based on the active privacy filter
+    private func applyPrivacyToDepth(rawData: inout Data, width: Int, height: Int) {
+        if privacyMode == "none" { return }
+
+        rawData.withUnsafeMutableBytes { ptr in
+            guard let uint16Buffer = ptr.bindMemory(to: UInt16.self).baseAddress else { return }
+
+            if privacyMode == "segmentation", let mask = personMaskBuffer {
+                CVPixelBufferLockBaseAddress(mask, .readOnly)
+                defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
+
+                let maskWidth = CVPixelBufferGetWidth(mask)
+                let maskHeight = CVPixelBufferGetHeight(mask)
+                let maskStride = CVPixelBufferGetBytesPerRow(mask)
+                guard let maskBase = CVPixelBufferGetBaseAddress(mask)?.assumingMemoryBound(to: UInt8.self) else { return }
+
+                for y in 0..<height {
+                    let my = y * maskHeight / max(height, 1)
+                    if my >= maskHeight { continue }
+                    let maskRowBase = maskBase.advanced(by: my * maskStride)
+
+                    for x in 0..<width {
+                        let mx = x * maskWidth / max(width, 1)
+                        if mx >= maskWidth { continue }
+
+                        let pixel = maskRowBase.advanced(by: mx).pointee
+                        // 8-bit Vision mask: higher values represent higher confidence of 'person'
+                        if pixel > 128 {
+                            uint16Buffer[y * width + x] = 0
+                        }
+                    }
+                }
+            } else if privacyMode == "pose", !detectedBodyPoses.isEmpty {
+                for pose in detectedBodyPoses {
+                    guard let points = try? pose.recognizedPoints(.all) else { continue }
+                    var minX: CGFloat = 1.0, minY: CGFloat = 1.0
+                    var maxX: CGFloat = 0.0, maxY: CGFloat = 0.0
+                    var validPoints = 0
+
+                    for (_, point) in points where point.confidence > 0.2 {
+                        minX = min(minX, point.location.x)
+                        minY = min(minY, point.location.y)
+                        maxX = max(maxX, point.location.x)
+                        maxY = max(maxY, point.location.y)
+                        validPoints += 1
+                    }
+
+                    guard validPoints > 0 else { continue }
+
+                    // Vision coordinates are bottom-left origin. Depth array is top-left origin.
+                    let flippedMinY = 1.0 - maxY
+                    let flippedMaxY = 1.0 - minY
+
+                    let cx = (minX + maxX) / 2
+                    let cy = (flippedMinY + flippedMaxY) / 2
+                    let w = (maxX - minX)
+                    let h = (flippedMaxY - flippedMinY)
+
+                    // Expand box by 50% for full limb coverage
+                    let expansion: CGFloat = 0.5
+                    let expandedW = w * (1 + 2 * expansion)
+                    let expandedH = h * (1 + 2 * expansion)
+
+                    let rectMinX = max(0, Int((cx - expandedW / 2) * CGFloat(width)))
+                    let rectMaxX = min(width - 1, Int((cx + expandedW / 2) * CGFloat(width)))
+                    let rectMinY = max(0, Int((cy - expandedH / 2) * CGFloat(height)))
+                    let rectMaxY = min(height - 1, Int((cy + expandedH / 2) * CGFloat(height)))
+
+                    guard rectMinX <= rectMaxX && rectMinY <= rectMaxY else { continue }
+
+                    for y in rectMinY...rectMaxY {
+                        for x in rectMinX...rectMaxX {
+                            uint16Buffer[y * width + x] = 0
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Encode pre-copied UInt16 raw depth bytes into a 16-bit grayscale PNG
@@ -1756,7 +1871,7 @@ extension CameraViewController {
         var savedCount = 0
         for frame in framesToSave {
             if let pngData = rawU16ToPNG(width: frame.width, height: frame.height, rawData: frame.rawU16) {
-                let filename = String(format: "depth_%06d_%d.png", frame.index, frame.timestampMs)
+                let filename = String(format: "depth_%06d", frame.index) + "_\(frame.timestampMs).png"
                 let fileURL = depthDir.appendingPathComponent(filename)
                 try? pngData.write(to: fileURL)
                 savedCount += 1
