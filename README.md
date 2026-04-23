@@ -51,6 +51,22 @@ Here are the default expectations and supported formats:
 > [!NOTE]
 > Setting any format to `"none"` will remotely disable collection from that specific sensor. This allows operators to save bandwidth and compute resources when certain streams are not needed for their agentic pipelines.
 
+### Output File Structure
+
+For each recording chunk at epoch timestamp `{ts}`, the app produces separate companion files:
+
+| Stream | Filename | Condition |
+|--------|----------|-----------|
+| Video (RGB only) | `chunk_{ts}.mp4` or `.mov` | `videoFormat ≠ "none"` |
+| Audio | `audio_{ts}.wav` or `.m4a` | `audioFormat ≠ "none"` |
+| Depth | `depth_{ts}/depth_{frame}_{ms}.png` | `depthFormat ≠ "none"`, LiDAR device required |
+| Pose | `pose_{ts}.json` | `poseFormat ≠ "none"` |
+| Timestamps | `timestamps_{ts}.txt` | `timestampFormat ≠ "none"` |
+
+> [!IMPORTANT]
+> **Depth capture** requires a LiDAR-equipped device (iPhone Pro/iPad Pro) with the **back camera** selected. On devices without LiDAR or when using the front camera, depth frames are silently skipped.
+> **Pose data** uses CoreMotion (device orientation via rotation matrix, gravity, and user acceleration). This provides 3-DOF orientation; for full 6-DOF (position + orientation), ARKit integration would be required.
+
 ## API & WebSocket Communication
 
 See the **[Endpoints Documentation](https://github.com/WiseLabCMU/AllSpark-edge-server/blob/master/docs/endpoints.md)** in the AllSpark Edge Server repository.

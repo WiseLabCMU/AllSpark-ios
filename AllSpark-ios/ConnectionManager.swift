@@ -584,6 +584,14 @@ class ConnectionManager: NSObject, ObservableObject {
                                 let audioURL = file.url.deletingLastPathComponent().appendingPathComponent("audio_\(chunkTimestamp).\(audioExt)")
                                 try? FileManager.default.removeItem(at: audioURL)
                             }
+
+                            // Clean up companion pose file
+                            let poseURL = file.url.deletingLastPathComponent().appendingPathComponent("pose_\(chunkTimestamp).json")
+                            try? FileManager.default.removeItem(at: poseURL)
+
+                            // Clean up companion depth directory
+                            let depthDirURL = file.url.deletingLastPathComponent().appendingPathComponent("depth_\(chunkTimestamp)")
+                            try? FileManager.default.removeItem(at: depthDirURL)
                         } else {
                             break
                         }

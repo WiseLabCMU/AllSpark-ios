@@ -4,6 +4,7 @@ import Vision
 import CoreImage
 import SwiftUI
 import Combine
+import CoreMotion
 
 class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
@@ -11,6 +12,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var captureSession: AVCaptureSession!
     private var videoOutput: AVCaptureVideoDataOutput!
     private var audioOutput: AVCaptureAudioDataOutput!
+    private var depthOutput: AVCaptureDepthDataOutput?
+    private var dataOutputSynchronizer: AVCaptureDataOutputSynchronizer?
     private var currentCameraPosition: AVCaptureDevice.Position = .front
 
     // Orientation management
@@ -45,6 +48,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     private var audioRecorder: AVAudioRecorder?
     private var audioURL: URL?
 
+    // Depth Capture
+    private var depthFrames: [(index: Int, timestampMs: Int, depthData: AVDepthData)] = []
+    private var depthDirectoryURL: URL?
+    private var isDepthAvailable: Bool = false
+
+    // Pose Capture (device motion via CoreMotion)
+    private let motionManager = CMMotionManager()
+    private var poseEntries: [[String: Any]] = []
+
     // Timestamp tracking
     private var frameTimestampsMs: [String] = []
     private var chunkFirstFrameTimestampMs: Int?
@@ -62,6 +74,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
     // Server-driven sensor format config (read from clientConfig)
     private var activeVideoFormat: String = AppConstants.ClientConfig.defaultVideoFormat
     private var activeAudioFormat: String = AppConstants.ClientConfig.defaultAudioFormat
+    private var activeDepthFormat: String = AppConstants.ClientConfig.defaultDepthFormat
+    private var activePoseFormat: String = AppConstants.ClientConfig.defaultPoseFormat
     private var activeTimestampFormat: String = AppConstants.ClientConfig.defaultTimestampFormat
 
     // WebSocket Connection
@@ -369,6 +383,24 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
                                 uploadVideo(at: audioURL)
                             }
                         }
+
+                        // Upload companion pose file
+                        let poseFilename = "pose_\(chunkTimestamp).json"
+                        let poseURL = documentsPath.appendingPathComponent(poseFilename)
+                        if FileManager.default.fileExists(atPath: poseURL.path) {
+                            uploadVideo(at: poseURL)
+                        }
+
+                        // Upload companion depth directory (all PNGs inside)
+                        let depthDirName = "depth_\(chunkTimestamp)"
+                        let depthDirURL = documentsPath.appendingPathComponent(depthDirName)
+                        if FileManager.default.fileExists(atPath: depthDirURL.path) {
+                            if let depthFiles = try? FileManager.default.contentsOfDirectory(at: depthDirURL, includingPropertiesForKeys: nil) {
+                                for depthFile in depthFiles where depthFile.pathExtension == "png" {
+                                    uploadVideo(at: depthFile)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -404,21 +436,31 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             captureSession.removeInput(currentInput)
         }
 
+        // Remove existing depth output and synchronizer
+        if let existingDepth = depthOutput {
+            captureSession.removeOutput(existingDepth)
+            depthOutput = nil
+        }
+        dataOutputSynchronizer = nil
+        isDepthAvailable = false
+
         // Toggle position
         currentCameraPosition = (currentCameraPosition == .front) ? .back : .front
 
         // Save preference
         UserDefaults.standard.set(currentCameraPosition == .front ? "front" : "back", forKey: "cameraPosition")
 
-        // Get new device
-        guard let newCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
+        // Select camera device
+        guard let device = selectCameraDevice(position: currentCameraPosition) else {
             print("Failed to get camera for position \(currentCameraPosition)")
             captureSession.commitConfiguration()
             return
         }
 
+        print("Switched to camera device: \(device.localizedName) (type: \(device.deviceType.rawValue))")
+
         // Add new input
-        guard let newInput = try? AVCaptureDeviceInput(device: newCamera) else {
+        guard let newInput = try? AVCaptureDeviceInput(device: device) else {
             print("Failed to create input for new camera")
             captureSession.commitConfiguration()
             return
@@ -428,8 +470,15 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             captureSession.addInput(newInput)
         }
 
+        // Setup depth output
+        configureDepthOutput(for: device)
+
+        // If no synchronizer, use standard delegate for video
+        if dataOutputSynchronizer == nil {
+            videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
+        }
+
         // Re-configure orientation
-        // Reset coordinator to force re-initialization with new device
         rotationCoordinator = nil
 
         captureSession.commitConfiguration()
@@ -437,6 +486,24 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         // Update orientation logic (re-inits coordinator)
         DispatchQueue.main.async {
             self.updateVideoOrientation()
+        }
+
+        // Update capture modes label to reflect depth availability
+        updateCaptureModesLabel()
+    }
+
+    /// Update the capture modes label based on current active formats and hardware
+    private func updateCaptureModesLabel() {
+        var modes: [String] = []
+        if activeVideoFormat != "none" { modes.append("Video") }
+        if activeAudioFormat != "none" { modes.append("Audio") }
+        if activeDepthFormat != "none" && isDepthAvailable { modes.append("Depth") }
+        if activePoseFormat != "none" { modes.append("Pose") }
+        if activeTimestampFormat != "none" { modes.append("Timestamps") }
+        let modesText = modes.isEmpty ? "Sensors disabled" : "Capturing: " + modes.joined(separator: " + ")
+
+        DispatchQueue.main.async { [weak self] in
+            self?.captureModesLabel.text = modesText
         }
     }
 
@@ -471,6 +538,8 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         if let config = ConnectionManager.shared.clientConfig {
             activeVideoFormat = config["videoFormat"] as? String ?? AppConstants.ClientConfig.defaultVideoFormat
             activeAudioFormat = config["audioFormat"] as? String ?? AppConstants.ClientConfig.defaultAudioFormat
+            activeDepthFormat = config["depthFormat"] as? String ?? AppConstants.ClientConfig.defaultDepthFormat
+            activePoseFormat = config["poseFormat"] as? String ?? AppConstants.ClientConfig.defaultPoseFormat
             activeTimestampFormat = config["timestampFormat"] as? String ?? AppConstants.ClientConfig.defaultTimestampFormat
         }
 
@@ -564,7 +633,7 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
 
             do {
                 let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try session.setActive(true)
 
                 audioRecorder = try AVAudioRecorder(url: audioURL, settings: audioSettings)
@@ -584,12 +653,22 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         frameCount = 0
         recordingStateLock.unlock()
 
+        // Clear per-chunk depth and pose buffers
+        depthFrames.removeAll()
+        depthDirectoryURL = nil
+        poseEntries.removeAll()
+
+        // Start CoreMotion for pose capture
+        startMotionCapture()
+
         print("Started recording chunk at \(timestampMs)")
 
         // Capture modes label
         var modes: [String] = []
         if videoEnabled { modes.append("Video") }
         if audioEnabled { modes.append("Audio") }
+        if activeDepthFormat != "none" && isDepthAvailable { modes.append("Depth") }
+        if activePoseFormat != "none" { modes.append("Pose") }
         if activeTimestampFormat != "none" { modes.append("Timestamps") }
         let modesText = modes.isEmpty ? "Sensors disabled" : "Capturing: " + modes.joined(separator: " + ")
 
@@ -690,6 +769,19 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
             try? timestampsData.write(to: timestampsURL, atomically: true, encoding: .utf8)
             print("Timestamps saved: \(timestampsFilename)")
         }
+
+        // --- Save depth frames (if enabled) ---
+        if activeDepthFormat != "none" {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                self?.saveDepthFrames(chunkTimeMs: chunkTimeMs)
+            }
+        }
+
+        // --- Save pose data (if enabled) ---
+        if activePoseFormat != "none" {
+            savePoseEntries(chunkTimeMs: chunkTimeMs)
+        }
+        stopMotionCapture()
 
         // --- Stop video writer ---
         guard let writer = assetWriter else {
@@ -904,18 +996,22 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         }
 
         captureSession = AVCaptureSession()
-        captureSession.sessionPreset = .high
 
         // Load saved camera position preference
         let savedCameraPosition = UserDefaults.standard.string(forKey: "cameraPosition") ?? "front"
         currentCameraPosition = savedCameraPosition == "back" ? .back : .front
 
-        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition) else {
+        // Select camera device — try depth-capable devices first for back camera
+        let device = selectCameraDevice(position: currentCameraPosition)
+
+        guard let device = device else {
             print("Failed to get camera device")
             return
         }
 
-        guard let videoInput = try? AVCaptureDeviceInput(device: videoCaptureDevice) else {
+        print("Selected camera device: \(device.localizedName) (type: \(device.deviceType.rawValue))")
+
+        guard let videoInput = try? AVCaptureDeviceInput(device: device) else {
             print("Failed to create video input")
             return
         }
@@ -925,11 +1021,18 @@ class CameraViewController: UIViewController, UINavigationControllerDelegate {
         }
 
         videoOutput = AVCaptureVideoDataOutput()
-        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
 
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
+        }
+
+        // Setup depth output
+        configureDepthOutput(for: device)
+
+        // If no synchronizer (no depth), use standard delegate for video
+        if dataOutputSynchronizer == nil {
+            videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
         }
 
         // Set initial video orientation
@@ -1296,6 +1399,11 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         recordVideoFrame(processedImage, timestamp: timestamp)
 
+        // Record pose sample (if enabled, non-synchronized path)
+        if activePoseFormat != "none" {
+            recordPoseSample(timestamp: timestamp)
+        }
+
         // Convert to UIImage and display
         if let cgImage = context.createCGImage(processedImage, from: processedImage.extent) {
             let uiImage = UIImage(cgImage: cgImage)
@@ -1313,6 +1421,376 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate, AV
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Synchronized Video + Depth Capture (LiDAR devices)
+extension CameraViewController: AVCaptureDataOutputSynchronizerDelegate {
+    func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
+                                didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection) {
+        // Extract video frame
+        guard let syncedVideoData = synchronizedDataCollection.synchronizedData(for: videoOutput) as? AVCaptureSynchronizedSampleBufferData,
+              !syncedVideoData.sampleBufferWasDropped else {
+            return
+        }
+        let sampleBuffer = syncedVideoData.sampleBuffer
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // Privacy filtering
+        if privacyMode != "none" {
+            let handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
+            do {
+                if privacyMode == "segmentation" {
+                    try handler.perform([personSegmentationRequest])
+                    if let result = personSegmentationRequest.results?.first as? VNPixelBufferObservation {
+                        self.personMaskBuffer = result.pixelBuffer
+                    }
+                } else {
+                    try handler.perform([bodyPoseRequest])
+                    self.detectedBodyPoses = bodyPoseRequest.results ?? []
+                }
+            } catch {
+                print("Failed to perform privacy detection: \(error)")
+            }
+        }
+
+        let processedImage = applyPrivacyBlur(to: ciImage)
+
+        // Record video frame
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        recordVideoFrame(processedImage, timestamp: timestamp)
+
+        // Record depth frame (if available and enabled)
+        if activeDepthFormat != "none",
+           let depthOut = depthOutput,
+           let syncedDepthData = synchronizedDataCollection.synchronizedData(for: depthOut) as? AVCaptureSynchronizedDepthData,
+           !syncedDepthData.depthDataWasDropped {
+
+            let ntpTimeMs = Int((Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime + timestamp.seconds) * 1000)
+
+            recordingStateLock.lock()
+            let currentFrameCount = frameCount - 1 // frameCount was already incremented by recordVideoFrame
+            let shouldCapture = isRecording
+            recordingStateLock.unlock()
+
+            if shouldCapture && currentFrameCount >= 0 {
+                depthFrames.append((index: currentFrameCount, timestampMs: ntpTimeMs, depthData: syncedDepthData.depthData))
+            }
+        }
+
+        // Record pose sample (if enabled)
+        if activePoseFormat != "none" {
+            recordPoseSample(timestamp: timestamp)
+        }
+
+        // Display
+        if let cgImage = context.createCGImage(processedImage, from: processedImage.extent) {
+            let uiImage = UIImage(cgImage: cgImage)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.imageView.image = uiImage
+
+                if let overlay = self.loadingOverlay {
+                    self.loadingOverlay = nil
+                    UIView.animate(withDuration: 0.3, animations: { [weak overlay] in
+                        overlay?.alpha = 0
+                    }) { [weak overlay] _ in
+                        overlay?.removeFromSuperview()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Camera & Depth Configuration Helpers
+extension CameraViewController {
+
+    /// Select the best camera device for a given position.
+    /// For back camera: tries LiDAR, dual-wide, dual, then wide-angle via DiscoverySession.
+    /// For front camera: uses wide-angle.
+    private func selectCameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        // Log device model for hardware identification
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let modelCode = withUnsafePointer(to: &systemInfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
+                String(cString: $0)
+            }
+        }
+        print("Device model: \(modelCode)")
+
+        if position == .back {
+            // Use DiscoverySession which is more reliable than .default() for virtual devices
+            let depthDeviceTypes: [AVCaptureDevice.DeviceType] = [
+                .builtInLiDARDepthCamera,
+                .builtInDualWideCamera,
+                .builtInDualCamera
+            ]
+
+            let discoverySession = AVCaptureDevice.DiscoverySession(
+                deviceTypes: depthDeviceTypes,
+                mediaType: .video,
+                position: .back
+            )
+
+            for device in discoverySession.devices {
+                print("Depth device found via DiscoverySession: \(device.localizedName) (type: \(device.deviceType.rawValue))")
+            }
+
+            if let device = discoverySession.devices.first {
+                return device
+            }
+
+            // Log if no depth devices found
+            print("No depth-capable devices found via DiscoverySession")
+        }
+
+        // Fallback to standard wide-angle
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+    }
+
+    /// Configure depth output for a given device. Adds AVCaptureDepthDataOutput to the
+    /// session first (some hardware only populates supportedDepthDataFormats after output
+    /// is attached), then finds a compatible format pair.
+    private func configureDepthOutput(for device: AVCaptureDevice) {
+        isDepthAvailable = false
+
+        // Only attempt depth for back-facing depth-capable devices
+        let depthCapableTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInLiDARDepthCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera
+        ]
+        guard depthCapableTypes.contains(device.deviceType) else {
+            print("Depth not available: device type \(device.deviceType.rawValue) does not support depth")
+            return
+        }
+
+        // Add depth output to session FIRST — on some devices, supportedDepthDataFormats
+        // only populates after the depth output is attached to the session
+        let depthOut = AVCaptureDepthDataOutput()
+        depthOut.isFilteringEnabled = true
+
+        guard captureSession.canAddOutput(depthOut) else {
+            print("Depth not available: cannot add depth output to session")
+            return
+        }
+        captureSession.addOutput(depthOut)
+
+        // Now search for compatible formats (with depth output attached)
+        guard let (videoFormat, depthFormat) = findDepthCompatibleFormat(for: device) else {
+            print("Depth not available: no compatible video+depth format found on \(device.localizedName)")
+            // Remove the depth output we just added since it won't work
+            captureSession.removeOutput(depthOut)
+            return
+        }
+
+        // Lock device and set the compatible format
+        do {
+            try device.lockForConfiguration()
+            device.activeFormat = videoFormat
+            device.activeDepthDataFormat = depthFormat
+            device.unlockForConfiguration()
+            let videoDims = CMVideoFormatDescriptionGetDimensions(videoFormat.formatDescription)
+            let depthDims = CMVideoFormatDescriptionGetDimensions(depthFormat.formatDescription)
+            print("Configured depth: video=\(videoDims.width)x\(videoDims.height), depth=\(depthDims.width)x\(depthDims.height)")
+        } catch {
+            print("Failed to configure depth format: \(error)")
+            captureSession.removeOutput(depthOut)
+            return
+        }
+
+        depthOutput = depthOut
+        isDepthAvailable = true
+
+        let synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [videoOutput, depthOut])
+        synchronizer.setDelegate(self, queue: DispatchQueue(label: "syncQueue"))
+        dataOutputSynchronizer = synchronizer
+        print("Depth capture enabled with synchronized output (device: \(device.localizedName))")
+    }
+
+    /// Find a video format and matching depth format for a device
+    private func findDepthCompatibleFormat(for device: AVCaptureDevice) -> (AVCaptureDevice.Format, AVCaptureDevice.Format)? {
+        // Find all formats that support depth output
+        let candidateFormats = device.formats.filter { format in
+            !format.supportedDepthDataFormats.isEmpty
+        }
+
+        print("Depth format search: \(device.formats.count) total formats, \(candidateFormats.count) with depth support")
+
+        // Log available depth-capable formats for diagnostics
+        for (i, format) in candidateFormats.prefix(5).enumerated() {
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            let depthCount = format.supportedDepthDataFormats.count
+            print("  Candidate \(i): \(dims.width)x\(dims.height), \(depthCount) depth format(s)")
+        }
+
+        if candidateFormats.isEmpty {
+            // Log a sample of available formats for debugging
+            print("  No depth formats found. Sample of available formats:")
+            for (i, format) in device.formats.prefix(5).enumerated() {
+                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                let mediaSubType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+                print("    Format \(i): \(dims.width)x\(dims.height), subtype=\(mediaSubType)")
+            }
+        }
+
+        // Sort by resolution (prefer higher)
+        let sorted = candidateFormats.sorted { a, b in
+            let dimA = CMVideoFormatDescriptionGetDimensions(a.formatDescription)
+            let dimB = CMVideoFormatDescriptionGetDimensions(b.formatDescription)
+            return dimA.width * dimA.height > dimB.width * dimB.height
+        }
+
+        for videoFormat in sorted {
+            // Prefer DepthFloat16 for efficiency
+            let depthFormats = videoFormat.supportedDepthDataFormats.filter {
+                CMFormatDescriptionGetMediaSubType($0.formatDescription) == kCVPixelFormatType_DepthFloat16
+            }
+            if let depthFormat = depthFormats.first {
+                return (videoFormat, depthFormat)
+            }
+            // Fall back to any depth format
+            if let depthFormat = videoFormat.supportedDepthDataFormats.first {
+                return (videoFormat, depthFormat)
+            }
+        }
+
+        return nil
+    }
+}
+
+// MARK: - Depth & Pose Recording Helpers
+extension CameraViewController {
+
+    /// Record the current device motion as a pose entry
+    private func recordPoseSample(timestamp: CMTime) {
+        guard let motion = motionManager.deviceMotion else { return }
+
+        recordingStateLock.lock()
+        let shouldCapture = isRecording
+        let currentFrame = frameCount - 1
+        recordingStateLock.unlock()
+        guard shouldCapture, currentFrame >= 0 else { return }
+
+        let ntpTimeMs = Int((Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime + timestamp.seconds) * 1000)
+        let attitude = motion.attitude
+        let rm = attitude.rotationMatrix
+
+        let entry: [String: Any] = [
+            "frame": currentFrame,
+            "timestampMs": ntpTimeMs,
+            "attitude": [
+                "roll": attitude.roll,
+                "pitch": attitude.pitch,
+                "yaw": attitude.yaw
+            ],
+            "rotationMatrix": [
+                [rm.m11, rm.m12, rm.m13],
+                [rm.m21, rm.m22, rm.m23],
+                [rm.m31, rm.m32, rm.m33]
+            ],
+            "gravity": [
+                "x": motion.gravity.x,
+                "y": motion.gravity.y,
+                "z": motion.gravity.z
+            ],
+            "userAcceleration": [
+                "x": motion.userAcceleration.x,
+                "y": motion.userAcceleration.y,
+                "z": motion.userAcceleration.z
+            ]
+        ]
+
+        poseEntries.append(entry)
+    }
+
+    /// Save accumulated depth frames as 16-bit PNGs into a directory
+    private func saveDepthFrames(chunkTimeMs: Int) {
+        guard !depthFrames.isEmpty else { return }
+
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let depthDirName = "depth_\(chunkTimeMs)"
+        let depthDir = documentsPath.appendingPathComponent(depthDirName)
+
+        do {
+            try FileManager.default.createDirectory(at: depthDir, withIntermediateDirectories: true)
+        } catch {
+            print("Failed to create depth directory: \(error)")
+            return
+        }
+
+        for frame in depthFrames {
+            // Convert depth data to disparity float16, then to a grayscale PNG
+            let depthMap = frame.depthData.converting(toDepthDataType: kCVPixelFormatType_DepthFloat16).depthDataMap
+
+            CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+
+            let width = CVPixelBufferGetWidth(depthMap)
+            let height = CVPixelBufferGetHeight(depthMap)
+
+            let ciImage = CIImage(cvPixelBuffer: depthMap)
+
+            // Render to a grayscale CGImage for PNG encoding
+            if let cgImage = context.createCGImage(ciImage, from: CGRect(x: 0, y: 0, width: width, height: height)) {
+                let uiImage = UIImage(cgImage: cgImage)
+                if let pngData = uiImage.pngData() {
+                    let filename = String(format: "depth_%06d_%d.png", frame.index, frame.timestampMs)
+                    let fileURL = depthDir.appendingPathComponent(filename)
+                    try? pngData.write(to: fileURL)
+                }
+            }
+        }
+
+        print("Saved \(depthFrames.count) depth frames to \(depthDirName)/")
+        depthDirectoryURL = depthDir
+    }
+
+    /// Save accumulated pose entries as a JSON file
+    private func savePoseEntries(chunkTimeMs: Int) {
+        guard !poseEntries.isEmpty else { return }
+
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let poseFilename = "pose_\(chunkTimeMs).json"
+        let poseURL = documentsPath.appendingPathComponent(poseFilename)
+
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: poseEntries, options: [.prettyPrinted, .sortedKeys])
+            try jsonData.write(to: poseURL)
+            print("Pose saved: \(poseFilename) (\(poseEntries.count) samples)")
+        } catch {
+            print("Failed to write pose file: \(error)")
+        }
+    }
+
+    /// Start CoreMotion updates for pose capture
+    private func startMotionCapture() {
+        guard activePoseFormat != "none" else { return }
+        guard motionManager.isDeviceMotionAvailable else {
+            print("Device motion not available")
+            return
+        }
+        // Match the camera frame rate for synchronized pose data
+        var fps = AppConstants.ClientConfig.defaultFPS
+        if let config = ConnectionManager.shared.clientConfig,
+           let configFPS = config["fps"] as? Double {
+            fps = configFPS
+        }
+        motionManager.deviceMotionUpdateInterval = 1.0 / fps
+        motionManager.startDeviceMotionUpdates(using: .xArbitraryZVertical)
+        print("Started motion capture at \(fps) Hz")
+    }
+
+    /// Stop CoreMotion updates
+    private func stopMotionCapture() {
+        if motionManager.isDeviceMotionActive {
+            motionManager.stopDeviceMotionUpdates()
+            print("Stopped motion capture")
         }
     }
 }
