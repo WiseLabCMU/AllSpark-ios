@@ -293,7 +293,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.0.1; // x-release-please-version
+				MARKETING_VERSION = 0.5.2; // x-release-please-version
 				PRODUCT_BUNDLE_IDENTIFIER = "edu.cmu.wiselab.AllSpark-mobile";
 				PRODUCT_NAME = AllSpark;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -336,7 +336,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.0.1; // x-release-please-version
+				MARKETING_VERSION = 0.5.2; // x-release-please-version
 				PRODUCT_BUNDLE_IDENTIFIER = "edu.cmu.wiselab.AllSpark-mobile";
 				PRODUCT_NAME = AllSpark;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
