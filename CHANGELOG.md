@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.5.2...v0.6.0) (2026-04-30)
+
+
+### Features
+
+* add depth capture via arkit ([354d460](https://github.com/WiseLabCMU/AllSpark-ios/commit/354d46073cd936cb3b6e35edda39d861dca42ece))
+* add pose and prelimb depth for upload ([6cf5a83](https://github.com/WiseLabCMU/AllSpark-ios/commit/6cf5a83f383659bb2044fa91759c6b974d124c10))
+* add privacy mask to depth ([b0e5937](https://github.com/WiseLabCMU/AllSpark-ios/commit/b0e59379210ded7caff5f4cad975f5f61f381278))
+* separate audio/video upload files: add opt. privacy none ([04dd440](https://github.com/WiseLabCMU/AllSpark-ios/commit/04dd440e2f1570e6f74441d03c0b0c8c548631aa))
+
+
+### Bug Fixes
+
+* **release:** configure release-please via config file instead of ios type ([ad490af](https://github.com/WiseLabCMU/AllSpark-ios/commit/ad490af1fd1ee9f384ce4f56ffb3eac0178b2857))
+* **release:** sync manifest and pbxproj to actual released version 0.5.2 ([456a778](https://github.com/WiseLabCMU/AllSpark-ios/commit/456a7784c41ee939110a351f43361e908377d54b))
+
 ## [0.5.2](https://github.com/WiseLabCMU/AllSpark-ios/compare/v0.5.1...v0.5.2) (2026-04-21)
 
 
