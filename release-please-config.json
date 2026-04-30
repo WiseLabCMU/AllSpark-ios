@@ -1,0 +1,10 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "extra-files": [
+        "AllSpark-ios.xcodeproj/project.pbxproj"
+      ]
+    }
+  }
+}
